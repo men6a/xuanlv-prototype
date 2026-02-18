@@ -9,6 +9,15 @@ from music21 import converter, note, stream, midi
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
 
+# 隐藏页面加载遮罩（滑块滑动时界面不再变暗）
+st.markdown("""
+<style>
+.stApp::before {
+    display: none !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # 全局字体调小
 st.markdown("""
 <style>
@@ -25,12 +34,12 @@ html, body, [class*="css"]  {
 }
 /* 按钮极限贴近感受输入框 */
 .button-row {
-    margin-top: -18px !important;  /* 上移更多，极限贴近 */
+    margin-top: -18px !important;
 }
 .button-row .stButton button, .button-row .stDownloadButton button {
-    font-size: 0.8rem !important;   /* 字号再小一些 */
-    padding: 0.15rem 0.4rem !important;  /* 更紧凑的内边距 */
-    line-height: 1.2;               /* 减小行高 */
+    font-size: 0.8rem !important;
+    padding: 0.15rem 0.4rem !important;
+    line-height: 1.2;
 }
 </style>
 """, unsafe_allow_html=True)
