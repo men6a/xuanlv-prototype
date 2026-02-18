@@ -8,7 +8,7 @@ import base64
 from music21 import converter, note, stream, midi
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
-st.title("🎵 玄·律标注原型 (无缝紧凑版)")
+st.title("🎵 玄·律标注原型 (纯色播放条版)")
 st.markdown("上传MIDI文件，生成变体，直接点击播放器试听（内置音源）。")
 
 # 初始化session_state
@@ -82,7 +82,8 @@ def get_midi_bytes(melody_stream):
 
 def get_midi_player_html(midi_bytes, player_id):
     """
-    返回一个仅包含播放条的 HTML 片段，无多余间距。
+    返回一个仅包含播放条的 HTML 片段，背景透明（由父容器提供奶绿色），
+    按钮和进度条使用深绿色，无多余线条。
     """
     import base64
     midi_base64 = base64.b64encode(midi_bytes).decode('utf-8')
@@ -95,7 +96,20 @@ def get_midi_player_html(midi_bytes, player_id):
             id="player-{player_id}"
             src="{data_url}"
             sound-font
-            style="width:100%; margin:0; padding:0; display:block;">
+            style="
+                width:100%;
+                margin:0;
+                padding:0;
+                display:block;
+                background: transparent;
+                border: none;
+                box-shadow: none;
+                --midi-player-background: transparent;
+                --midi-player-progress-background: transparent;
+                --midi-player-button-color: #2d4a1e;
+                --midi-player-progress-color: #2d4a1e;
+                --midi-player-handle-color: #2d4a1e;
+            ">
         </midi-player>
     </div>
     """
@@ -160,7 +174,7 @@ if st.session_state.variants:
             with left_col:
                 midi_bytes = get_midi_bytes(var)
                 
-                # 统一的奶绿色背景容器样式（上内边距0使播放条贴顶）
+                # 统一的奶绿色背景容器（上内边距0使播放条贴顶）
                 st.markdown(
                     """
                     <style>
@@ -178,10 +192,9 @@ if st.session_state.variants:
                     unsafe_allow_html=True
                 )
                 
-                # 用div包裹播放器和感受词
                 st.markdown('<div class="mint-container">', unsafe_allow_html=True)
                 
-                # 播放器（高度自适应，设置嵌入高度为50px足够）
+                # 播放器（背景透明，由容器提供奶绿色）
                 player_html = get_midi_player_html(midi_bytes, idx)
                 st.components.v1.html(player_html, height=50)
                 
