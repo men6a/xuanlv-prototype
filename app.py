@@ -8,7 +8,7 @@ import base64
 from music21 import converter, note, stream, midi
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
-st.title("🎵 玄·律标注原型 (感受词嵌入左侧)")
+st.title("🎵 玄·律标注原型 (紧凑播放条版)")
 st.markdown("上传MIDI文件，生成变体，直接点击播放器试听（内置音源）。")
 
 # 初始化session_state
@@ -82,27 +82,21 @@ def get_midi_bytes(melody_stream):
 
 def get_midi_player_html(midi_bytes, player_id):
     """
-    返回一个内嵌 html-midi-player 的 HTML 片段，背景色为奶绿色。
+    返回一个仅包含播放条的 HTML 片段，背景色奶绿色，无钢琴卷帘。
     """
     import base64
     midi_base64 = base64.b64encode(midi_bytes).decode('utf-8')
     data_url = f"data:audio/midi;base64,{midi_base64}"
 
     html = f"""
-    <div style="background-color: #e6f3da; padding: 12px; border-radius: 8px; margin: 8px 0;">
+    <div style="background-color: #e6f3da; padding: 8px 12px; border-radius: 8px; margin: 4px 0;">
         <script src="https://cdn.jsdelivr.net/combine/npm/tone@14.7.58,npm/@magenta/music@1.23.1/es6/core.js,npm/focus-visible@5,npm/html-midi-player@1.5.0"></script>
         <midi-player
             id="player-{player_id}"
             src="{data_url}"
             sound-font
-            visualizer="#visualizer-{player_id}"
             style="width: 100%;">
         </midi-player>
-        <midi-visualizer
-            id="visualizer-{player_id}"
-            type="piano-roll"
-            style="width: 100%; height: 100px; margin-top: 8px; background-color: #f8fff0; border-radius: 4px;">
-        </midi-visualizer>
     </div>
     """
     return html
@@ -166,16 +160,15 @@ if st.session_state.variants:
             with left_col:
                 midi_bytes = get_midi_bytes(var)
                 player_html = get_midi_player_html(midi_bytes, idx)
-                st.components.v1.html(player_html, height=200)
+                # 高度调整为仅播放条（约80-100px）
+                st.components.v1.html(player_html, height=100)
                 
-                # ---------- 感受词输入框（嵌入左侧，带奶绿色背景）----------
-                # 当前值
+                # 感受词输入框（奶绿色背景）
                 if idx < len(st.session_state.labels_feelings):
                     current_f = st.session_state.labels_feelings[idx] if st.session_state.labels_feelings[idx] is not None else ""
                 else:
                     current_f = ""
                 
-                # 使用容器添加背景色
                 with st.container():
                     st.markdown(
                         """
@@ -199,7 +192,6 @@ if st.session_state.variants:
                         key=f"f_{idx}"
                     )
                     st.markdown('</div>', unsafe_allow_html=True)
-                # ---------------------------------------------------------
                 
                 st.download_button(
                     "⬇️ 下载MIDI文件",
@@ -211,7 +203,6 @@ if st.session_state.variants:
             
             with right_col:
                 st.markdown("#### 标注")
-                # 当前值
                 if idx < len(st.session_state.labels_surprise):
                     current_s = st.session_state.labels_surprise[idx] if st.session_state.labels_surprise[idx] is not None else 0.5
                 else:
@@ -225,7 +216,6 @@ if st.session_state.variants:
                 new_b = st.slider("好听度", 0.0, 1.0, current_b, key=f"b_{idx}")
                 
                 if st.button("保存标注", key=f"save_{idx}"):
-                    # 确保列表足够长
                     while len(st.session_state.labels_surprise) <= idx:
                         st.session_state.labels_surprise.append(None)
                     while len(st.session_state.labels_beauty) <= idx:
@@ -235,7 +225,6 @@ if st.session_state.variants:
                     
                     st.session_state.labels_surprise[idx] = new_s
                     st.session_state.labels_beauty[idx] = new_b
-                    # 从session_state中获取感受词的最新值（因为text_area的key是f_{idx}）
                     st.session_state.labels_feelings[idx] = st.session_state[f"f_{idx}"]
                     st.success("✅ 已保存")
 else:
