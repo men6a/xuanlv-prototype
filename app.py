@@ -183,9 +183,46 @@ with st.sidebar:
 if st.session_state.variants:
     for idx, var in enumerate(st.session_state.variants[:10]):  # 只显示前10个
         indicator = st.session_state.save_indicator[idx] if idx < len(st.session_state.save_indicator) else ""
-        expander_title = f"变体 #{idx} {indicator}"
-        
-        with st.expander(expander_title, expanded=True):
+        # 使用空标题，内部自定义标题行
+        with st.expander("", expanded=True):
+            # 自定义标题行（与展开按钮平齐）
+            cols = st.columns([1, 1, 4, 1, 1])
+            with cols[0]:
+                st.markdown(f"**变体 #{idx}**")
+            with cols[1]:
+                st.markdown(f"**{indicator}**" if indicator else "")
+            with cols[3]:
+                # 下载按钮
+                st.download_button(
+                    "⬇️ 下载",
+                    data=get_midi_bytes(var),
+                    file_name=f"variant_{idx}.mid",
+                    mime="audio/midi",
+                    key=f"download_{idx}"
+                )
+            with cols[4]:
+                # 保存按钮
+                if st.button("💾 保存", key=f"save_title_{idx}"):
+                    current_s = st.session_state.get(f"s_{idx}", 0.5)
+                    current_b = st.session_state.get(f"b_{idx}", 0.5)
+                    current_f = st.session_state.get(f"f_{idx}", "")
+                    
+                    while len(st.session_state.labels_surprise) <= idx:
+                        st.session_state.labels_surprise.append(None)
+                    while len(st.session_state.labels_beauty) <= idx:
+                        st.session_state.labels_beauty.append(None)
+                    while len(st.session_state.labels_feelings) <= idx:
+                        st.session_state.labels_feelings.append("")
+                    while len(st.session_state.save_indicator) <= idx:
+                        st.session_state.save_indicator.append("")
+                    
+                    st.session_state.labels_surprise[idx] = current_s
+                    st.session_state.labels_beauty[idx] = current_b
+                    st.session_state.labels_feelings[idx] = current_f
+                    st.session_state.save_indicator[idx] = "✅"
+                    st.rerun()
+            
+            # 原有的左右列内容
             left_col, right_col = st.columns(2)
             
             with left_col:
@@ -195,7 +232,7 @@ if st.session_state.variants:
                 player_html = get_midi_player_html(midi_bytes, idx)
                 st.components.v1.html(player_html, height=60)
                 
-                # 感受词输入框（标题已融入placeholder）
+                # 感受词输入框
                 if idx < len(st.session_state.labels_feelings):
                     current_f = st.session_state.labels_feelings[idx] if st.session_state.labels_feelings[idx] is not None else ""
                 else:
@@ -209,57 +246,6 @@ if st.session_state.variants:
                     key=f"f_{idx}",
                     label_visibility="collapsed"
                 )
-                
-                # 按钮行：两列等宽，通过CSS实现左对齐和右对齐
-                st.markdown(
-                    """
-                    <style>
-                    /* 左列按钮左对齐 */
-                    div[data-testid="column"]:nth-child(1) .stButton button {
-                        float: left;
-                    }
-                    /* 右列按钮右对齐且不换行 */
-                    div[data-testid="column"]:nth-child(2) .stButton {
-                        text-align: right;
-                    }
-                    div[data-testid="column"]:nth-child(2) .stButton button {
-                        white-space: nowrap;
-                        width: auto;
-                        display: inline-block;
-                    }
-                    </style>
-                    """,
-                    unsafe_allow_html=True
-                )
-                btn_col1, btn_col2 = st.columns(2)
-                with btn_col1:
-                    st.download_button(
-                        "⬇️ 下载MIDI文件",
-                        data=get_midi_bytes(var),
-                        file_name=f"variant_{idx}.mid",
-                        mime="audio/midi",
-                        key=f"download_{idx}"
-                    )
-                with btn_col2:
-                    if st.button("💾 保存标注", key=f"save_left_{idx}"):
-                        current_s = st.session_state.get(f"s_{idx}", 0.5)
-                        current_b = st.session_state.get(f"b_{idx}", 0.5)
-                        current_f = st.session_state.get(f"f_{idx}", "")
-                        
-                        while len(st.session_state.labels_surprise) <= idx:
-                            st.session_state.labels_surprise.append(None)
-                        while len(st.session_state.labels_beauty) <= idx:
-                            st.session_state.labels_beauty.append(None)
-                        while len(st.session_state.labels_feelings) <= idx:
-                            st.session_state.labels_feelings.append("")
-                        while len(st.session_state.save_indicator) <= idx:
-                            st.session_state.save_indicator.append("")
-                        
-                        st.session_state.labels_surprise[idx] = current_s
-                        st.session_state.labels_beauty[idx] = current_b
-                        st.session_state.labels_feelings[idx] = current_f
-                        st.session_state.save_indicator[idx] = "✅"
-                        st.rerun()
             
             with right_col:
                 if idx < len(st.session_state.labels_surprise):
