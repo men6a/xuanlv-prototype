@@ -5,7 +5,7 @@ import tempfile
 import random
 import copy
 import base64
-from music21 import converter, note, stream, midi, chord, interval, pitch
+from music21 import converter, note, stream, midi, chord, interval, pitch, meter
 from collections import Counter
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
@@ -413,6 +413,116 @@ def generate_variant(melody_stream, surprise_strength=0.3,
         new_stream.append(n)
     return new_stream
 
+# ==================== 动机发展功能 ====================
+
+def get_total_measures(stream_obj):
+    """获取流的总小节数（基于音符的measureNumber）"""
+    measures = set()
+    for n in stream_obj.flat.notes:
+        if n.measureNumber is not None:
+            measures.add(n.measureNumber)
+    if measures:
+        return max(measures)
+    return 0
+
+def extract_motif(original_stream, start_measure, length_measures):
+    """
+    从原始流中提取指定起始小节和长度的小节作为动机
+    返回一个新的stream，包含这些小节的所有音符（保持原始offset）
+    """
+    motif_stream = stream.Stream()
+    start_offset = None
+    end_offset = None
+    
+    # 找到起始小节的第一个音符的offset和结束小节的最后一个音符的offset
+    notes = list(original_stream.flat.notes)
+    # 收集所有小节内的音符
+    motif_notes = []
+    for n in notes:
+        if n.measureNumber is not None and start_measure <= n.measureNumber < start_measure + length_measures:
+            motif_notes.append(n)
+    
+    if not motif_notes:
+        return None
+    
+    # 按offset排序
+    motif_notes.sort(key=lambda x: x.offset)
+    
+    # 计算最小的offset，作为新流的起点
+    min_offset = motif_notes[0].offset
+    for n in motif_notes:
+        new_n = copy.deepcopy(n)
+        new_n.offset = n.offset - min_offset  # 重置offset，使动机从0开始
+        motif_stream.append(new_n)
+    
+    return motif_stream
+
+def develop_motif_with_progression(motif_stream, target_measures, chord_progression, key='C', mode='major', beats_per_measure=4.0):
+    """
+    将动机发展为指定小节数的乐段，按照和弦进程调整音高
+    返回新乐段的stream
+    """
+    if motif_stream is None or len(motif_stream.notes) == 0:
+        return stream.Stream()
+    
+    # 获取和弦进程的度数列表
+    prog_degrees = MusicTheoryEngine.COMMON_PROGRESSIONS.get(chord_progression, [0,5,7,0])
+    num_chords = len(prog_degrees)
+    
+    # 计算每个和弦持续的小节数（尽量均匀分配）
+    base_bars_per_chord = target_measures // num_chords
+    remainder = target_measures % num_chords
+    chord_bars = [base_bars_per_chord + 1 if i < remainder else base_bars_per_chord for i in range(num_chords)]
+    
+    # 构建目标乐段
+    result_stream = stream.Stream()
+    
+    # 动机的时长（以拍为单位）
+    motif_duration = max(n.offset + n.quarterLength for n in motif_stream.notes) if motif_stream.notes else 0
+    
+    current_bar = 0  # 当前已处理的小节数
+    while current_bar < target_measures:
+        # 确定当前属于哪个和弦
+        cum_bars = 0
+        chord_idx = 0
+        for i, bars in enumerate(chord_bars):
+            if current_bar < cum_bars + bars:
+                chord_idx = i
+                break
+            cum_bars += bars
+        else:
+            chord_idx = num_chords - 1
+        
+        chord_tones = MusicTheoryEngine.get_chord_tones(prog_degrees[chord_idx], key, mode)
+        
+        # 将动机复制一份，并根据当前和弦调整音高
+        for n in motif_stream.notes:
+            new_n = copy.deepcopy(n)
+            # 计算新音符的offset：当前小节起始 + 原offset
+            new_offset = current_bar * beats_per_measure + n.offset
+            new_n.offset = new_offset
+            
+            # 调整音高到最近的和弦内音
+            original_pitch = n.pitch.midi
+            if (original_pitch % 12) not in chord_tones:
+                best_pitch = original_pitch
+                min_dist = 12
+                for ct in chord_tones:
+                    for octave in [-1, 0, 1]:
+                        test_pitch = ct + ((original_pitch // 12) + octave) * 12
+                        dist = abs(test_pitch - original_pitch)
+                        if dist < min_dist and 0 <= test_pitch <= 127:
+                            min_dist = dist
+                            best_pitch = test_pitch
+                new_n.pitch.midi = best_pitch
+            
+            result_stream.append(new_n)
+        
+        # 移动到下一组动机的起始小节
+        current_bar += chord_bars[chord_idx]
+    
+    return result_stream
+
 # ==================== 辅助函数 ====================
 
 def get_midi_bytes(melody_stream):
@@ -533,15 +643,70 @@ with st.sidebar:
             st.session_state.save_indicator = [""] * len(new_variants)
             st.success(f"已生成 {len(new_variants)} 个变体")
 
+    st.markdown("### 4. 动机发展")
+    if raw_melodies:
+        # 显示总小节数
+        total_measures = get_total_measures(raw_melodies[0])
+        st.caption(f"当前MIDI总小节数: {total_measures}")
+        
+        start_measure = st.number_input("起始小节", min_value=1, max_value=max(1, total_measures), value=1)
+        motif_length = st.number_input("动机长度（小节）", min_value=1, max_value=16, value=2)
+        target_length = st.number_input("目标乐段长度（小节）", min_value=1, max_value=64, value=18)
+        dev_progression = st.selectbox("发展用和弦进程", progression_options, index=1, key="dev_prog")
+        
+        if st.button("生成乐段"):
+            if not raw_melodies:
+                st.warning("请先导入MIDI")
+            else:
+                # 使用第一个导入的MIDI（如果有多个，可扩展）
+                source_stream = raw_melodies[0]
+                # 提取动机
+                motif = extract_motif(source_stream, start_measure, motif_length)
+                if motif is None or len(motif.notes) == 0:
+                    st.error("指定小节内无音符，请调整范围")
+                else:
+                    # 发展乐段
+                    developed = develop_motif_with_progression(
+                        motif, target_length, dev_progression,
+                        key=selected_key, mode=selected_mode,
+                        beats_per_measure=4.0  # 默认4/4拍，可后续优化
+                    )
+                    # 添加到变体列表
+                    new_idx = len(st.session_state.variants)
+                    st.session_state.variants.append(developed)
+                    st.session_state.variant_meta.append({
+                        'type': 'development',
+                        'start_measure': start_measure,
+                        'motif_length': motif_length,
+                        'target_length': target_length,
+                        'progression': dev_progression,
+                        'key': selected_key,
+                        'mode': selected_mode
+                    })
+                    st.session_state.labels_surprise.append(None)
+                    st.session_state.labels_beauty.append(None)
+                    st.session_state.labels_feelings.append("")
+                    st.session_state.save_indicator.append("")
+                    st.success(f"已生成乐段，作为变体 #{new_idx} 添加")
+    else:
+        st.info("请先导入MIDI文件")
+
 # ==================== 主界面 ====================
 
 if st.session_state.variants:
     for idx, var in enumerate(st.session_state.variants[:10]):
         indicator = st.session_state.save_indicator[idx] if idx < len(st.session_state.save_indicator) else ""
         meta = st.session_state.variant_meta[idx] if idx < len(st.session_state.variant_meta) else {}
-        prog_str = meta.get('progression', '无')
-        param_str = f"{meta.get('key','C')} {meta.get('mode','major')} {meta.get('style','classical')} {prog_str}" if meta else ""
+        
+        # 构建标题显示
+        if meta.get('type') == 'development':
+            param_str = f"动机发展: {meta.get('start_measure')}小节起{meta.get('motif_length')}小节 → {meta.get('target_length')}小节 {meta.get('progression')}"
+        else:
+            prog_str = meta.get('progression', '无')
+            param_str = f"{meta.get('key','C')} {meta.get('mode','major')} {meta.get('style','classical')} {prog_str}" if meta else ""
+        
         expander_title = f"变体 #{idx} {indicator}  {param_str}"
+        
         with st.expander(expander_title, expanded=True):
             left_col, right_col = st.columns(2)
             with left_col:
