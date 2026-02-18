@@ -3,10 +3,11 @@ import pandas as pd
 import numpy as np
 import tempfile
 import random
+import copy  # 新增：用于深拷贝
 from music21 import converter, note, stream, midi
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
-st.title("🎵 玄·律标注原型 (二次修复版)")
+st.title("🎵 玄·律标注原型 (最终修复版)")
 st.markdown("上传MIDI文件，生成变体，标注意外度和好听度。")
 
 # 初始化session_state
@@ -21,21 +22,30 @@ if 'labels_beauty' not in st.session_state:
 
 def generate_variant(melody_stream, surprise_strength=0.3):
     """
-    生成旋律变体：复制传入的Stream，修改其中的音符。
+    生成旋律变体：从原流中提取音符，深拷贝后修改，再构建新流。
     """
-    new_stream = melody_stream.copy()  # 此时melody_stream是Stream对象
-    notes = list(new_stream.getElementsByClass(note.Note))
-    if not notes:
-        return new_stream
-    n_changes = max(1, int(len(notes) * surprise_strength))
+    # 提取所有音符（假设只有单旋律）
+    original_notes = list(melody_stream.getElementsByClass(note.Note))
+    if not original_notes:
+        return stream.Stream()  # 返回空流
+    
+    # 深拷贝音符列表，以便独立修改
+    new_notes = [copy.deepcopy(n) for n in original_notes]
+    
+    n_changes = max(1, int(len(new_notes) * surprise_strength))
     for _ in range(n_changes):
-        idx = random.randint(0, len(notes)-1)
+        idx = random.randint(0, len(new_notes)-1)
         delta = random.choice([-2, -1, 1, 2])
-        new_pitch = notes[idx].pitch.midi + delta
+        new_pitch = new_notes[idx].pitch.midi + delta
         if 0 <= new_pitch <= 127:
-            notes[idx].pitch.midi = new_pitch
+            new_notes[idx].pitch.midi = new_pitch
         if random.random() < 0.3:
-            notes[idx].quarterLength *= random.choice([0.5, 1, 2])
+            new_notes[idx].quarterLength *= random.choice([0.5, 1, 2])
+    
+    # 用修改后的音符构造新流
+    new_stream = stream.Stream()
+    for n in new_notes:
+        new_stream.append(n)
     return new_stream
 
 def get_midi_data(melody_stream):
