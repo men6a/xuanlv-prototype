@@ -182,7 +182,6 @@ with st.sidebar:
 # 主界面：标注（默认展开）
 if st.session_state.variants:
     for idx, var in enumerate(st.session_state.variants[:10]):  # 只显示前10个
-        # 动态构建标题，包含保存标记
         indicator = st.session_state.save_indicator[idx] if idx < len(st.session_state.save_indicator) else ""
         expander_title = f"变体 #{idx} {indicator}"
         
@@ -196,26 +195,24 @@ if st.session_state.variants:
                 player_html = get_midi_player_html(midi_bytes, idx)
                 st.components.v1.html(player_html, height=60)
                 
-                # 标题：请标注变体听感（不再包含按钮）
-                st.markdown("**请标注变体听感**")
-                
-                # 感受词输入框
+                # 感受词输入框（标题已融入placeholder）
                 if idx < len(st.session_state.labels_feelings):
                     current_f = st.session_state.labels_feelings[idx] if st.session_state.labels_feelings[idx] is not None else ""
                 else:
                     current_f = ""
                 
                 st.text_area(
-                    "感受词（可输入多个词，逗号分隔）",
+                    "感受词",
                     value=current_f,
                     height=80,
-                    placeholder="例如：跳跃、不协和、温柔...",
+                    placeholder="请标注变体听感（例如：跳跃、不协和、温柔...）",
                     key=f"f_{idx}",
                     label_visibility="collapsed"
                 )
                 
-                # 按钮行：下载靠左，保存靠右
-                btn_col1, btn_col2 = st.columns(2)
+                # 按钮行：下载靠左，保存靠右并与输入框右边缘对齐
+                # 使用列比例：[1, 'auto']，让保存列宽度自适应内容
+                btn_col1, btn_col2 = st.columns([1, 'auto'])
                 with btn_col1:
                     st.download_button(
                         "⬇️ 下载MIDI文件",
@@ -225,9 +222,22 @@ if st.session_state.variants:
                         key=f"download_{idx}"
                     )
                 with btn_col2:
-                    # 保存按钮靠右（通过列布局自然右对齐）
+                    # 添加CSS使按钮容器内的按钮右对齐
+                    st.markdown(
+                        """
+                        <style>
+                        div[data-testid="column"]:nth-child(2) .stButton {
+                            text-align: right;
+                        }
+                        div[data-testid="column"]:nth-child(2) .stButton button {
+                            display: inline-block;
+                            margin-left: auto;
+                        }
+                        </style>
+                        """,
+                        unsafe_allow_html=True
+                    )
                     if st.button("💾 保存标注", key=f"save_left_{idx}"):
-                        # 获取当前值
                         current_s = st.session_state.get(f"s_{idx}", 0.5)
                         current_b = st.session_state.get(f"b_{idx}", 0.5)
                         current_f = st.session_state.get(f"f_{idx}", "")
@@ -248,7 +258,6 @@ if st.session_state.variants:
                         st.rerun()
             
             with right_col:
-                # 显示当前保存的值（如果有）
                 if idx < len(st.session_state.labels_surprise):
                     current_s = st.session_state.labels_surprise[idx] if st.session_state.labels_surprise[idx] is not None else 0.5
                 else:
@@ -258,7 +267,6 @@ if st.session_state.variants:
                 else:
                     current_b = 0.5
                 
-                # 滑块，标签已修改
                 new_s = st.slider("意外度评分", 0.0, 1.0, current_s, key=f"s_{idx}")
                 new_b = st.slider("好听度评分", 0.0, 1.0, current_b, key=f"b_{idx}")
 else:
