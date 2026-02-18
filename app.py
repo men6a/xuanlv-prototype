@@ -9,7 +9,7 @@ from music21 import converter, note, stream, midi
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
 
-# 自定义标题样式（保持与普通文本一致）
+# 自定义标题样式
 st.markdown("""
 <style>
 .main-title {
@@ -205,33 +205,6 @@ if st.session_state.variants:
                     key=f"f_{idx}",
                     label_visibility="collapsed"
                 )
-                
-                # 并排按钮：下载 和 保存标注
-                btn_col1, btn_col2 = st.columns(2)
-                with btn_col1:
-                    st.download_button(
-                        "⬇️ 下载MIDI文件",
-                        data=midi_bytes,
-                        file_name=f"variant_{idx}.mid",
-                        mime="audio/midi",
-                        key=f"download_{idx}"
-                    )
-                with btn_col2:
-                    # 获取当前滑块值用于保存（从右侧滑块获取）
-                    current_s = st.session_state.get(f"s_{idx}", 0.5)
-                    current_b = st.session_state.get(f"b_{idx}", 0.5)
-                    current_f = st.session_state.get(f"f_{idx}", "")
-                    if st.button("💾 保存标注", key=f"save_{idx}"):
-                        while len(st.session_state.labels_surprise) <= idx:
-                            st.session_state.labels_surprise.append(None)
-                        while len(st.session_state.labels_beauty) <= idx:
-                            st.session_state.labels_beauty.append(None)
-                        while len(st.session_state.labels_feelings) <= idx:
-                            st.session_state.labels_feelings.append("")
-                        st.session_state.labels_surprise[idx] = current_s
-                        st.session_state.labels_beauty[idx] = current_b
-                        st.session_state.labels_feelings[idx] = current_f
-                        st.success(f"变体 #{idx} 已保存")
             
             with right_col:
                 # 显示当前保存的值（如果有）
@@ -244,9 +217,38 @@ if st.session_state.variants:
                 else:
                     current_b = 0.5
                 
-                # 滑块（静默操作，无额外闪烁）
+                # 滑块
                 new_s = st.slider("意外度", 0.0, 1.0, current_s, key=f"s_{idx}")
                 new_b = st.slider("好听度", 0.0, 1.0, current_b, key=f"b_{idx}")
-                # 右侧不再有保存按钮
+                
+                # 按钮并排放在滑块下方
+                btn_col1, btn_col2 = st.columns(2)
+                with btn_col1:
+                    st.download_button(
+                        "⬇️ 下载MIDI文件",
+                        data=get_midi_bytes(var),  # 重新生成以确保数据最新
+                        file_name=f"variant_{idx}.mid",
+                        mime="audio/midi",
+                        key=f"download_{idx}"
+                    )
+                with btn_col2:
+                    # 保存按钮
+                    if st.button("💾 保存标注", key=f"save_{idx}"):
+                        # 获取当前值
+                        current_s = st.session_state.get(f"s_{idx}", 0.5)
+                        current_b = st.session_state.get(f"b_{idx}", 0.5)
+                        current_f = st.session_state.get(f"f_{idx}", "")
+                        
+                        while len(st.session_state.labels_surprise) <= idx:
+                            st.session_state.labels_surprise.append(None)
+                        while len(st.session_state.labels_beauty) <= idx:
+                            st.session_state.labels_beauty.append(None)
+                        while len(st.session_state.labels_feelings) <= idx:
+                            st.session_state.labels_feelings.append("")
+                        
+                        st.session_state.labels_surprise[idx] = current_s
+                        st.session_state.labels_beauty[idx] = current_b
+                        st.session_state.labels_feelings[idx] = current_f
+                        st.success(f"变体 #{idx} 已保存")
 else:
     st.info("请在左侧上传MIDI文件并生成变体")
