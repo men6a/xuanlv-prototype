@@ -6,7 +6,7 @@ import random
 from music21 import converter, note, stream, midi
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
-st.title("🎵 玄·律标注原型 (修复版)")
+st.title("🎵 玄·律标注原型 (二次修复版)")
 st.markdown("上传MIDI文件，生成变体，标注意外度和好听度。")
 
 # 初始化session_state
@@ -19,27 +19,21 @@ if 'labels_surprise' not in st.session_state:
 if 'labels_beauty' not in st.session_state:
     st.session_state.labels_beauty = []
 
-# ---------- 修复后的函数 ----------
 def generate_variant(melody_stream, surprise_strength=0.3):
     """
-    生成旋律变体：直接复制传入的流，修改其中的音符。
-    避免使用 .flat，因为传入的流已经是扁平的。
+    生成旋律变体：复制传入的Stream，修改其中的音符。
     """
-    # 直接复制整个流
-    new_stream = melody_stream.copy()
-    # 获取所有音符（列表形式）
+    new_stream = melody_stream.copy()  # 此时melody_stream是Stream对象
     notes = list(new_stream.getElementsByClass(note.Note))
     if not notes:
         return new_stream
     n_changes = max(1, int(len(notes) * surprise_strength))
     for _ in range(n_changes):
         idx = random.randint(0, len(notes)-1)
-        # 随机改变音高（上下大二度或半音）
         delta = random.choice([-2, -1, 1, 2])
         new_pitch = notes[idx].pitch.midi + delta
         if 0 <= new_pitch <= 127:
             notes[idx].pitch.midi = new_pitch
-        # 随机改变时值
         if random.random() < 0.3:
             notes[idx].quarterLength *= random.choice([0.5, 1, 2])
     return new_stream
@@ -56,14 +50,13 @@ def get_midi_data(melody_stream):
     import os
     os.unlink(temp.name)
     return data
-# ---------------------------------
 
 # 侧边栏：上传MIDI
 with st.sidebar:
     st.header("1. 导入MIDI文件")
     uploaded_files = st.file_uploader("选择MIDI文件", type=['mid','midi'], accept_multiple_files=True)
     
-    raw_melodies = []
+    raw_melodies = []  # 存放Stream对象
     if uploaded_files:
         for f in uploaded_files:
             with tempfile.NamedTemporaryFile(delete=False, suffix='.mid') as tmp:
@@ -71,10 +64,12 @@ with st.sidebar:
                 tmp_path = tmp.name
             try:
                 score = converter.parse(tmp_path)
-                # 提取最高声部的所有音符（已经是扁平的流）
-                melody = score.parts[0].flat.getElementsByClass(note.Note)
-                if len(melody) > 0:
-                    raw_melodies.append(melody)
+                # 提取最高声部的所有音符，并转换为列表
+                note_list = list(score.parts[0].flat.getElementsByClass(note.Note))
+                if note_list:
+                    # 将音符列表构造成Stream对象
+                    melody_stream = stream.Stream(note_list)
+                    raw_melodies.append(melody_stream)
                     st.success(f"已导入: {f.name}")
                 else:
                     st.warning(f"无音符: {f.name}")
@@ -91,7 +86,7 @@ with st.sidebar:
         else:
             st.session_state.variants = []
             st.session_state.variant_meta = []
-            for mel in raw_melodies:
+            for mel in raw_melodies:  # mel是Stream对象
                 for i in range(n_per_original):
                     strength = random.uniform(0.2, 0.8)
                     var = generate_variant(mel, strength)
