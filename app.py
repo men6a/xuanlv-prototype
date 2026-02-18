@@ -8,7 +8,7 @@ import base64
 from music21 import converter, note, stream, midi
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
-st.title("🎵 玄·律标注原型 (纯色播放条版)")
+st.title("🎵 玄·律标注原型 (极简播放条版)")
 st.markdown("上传MIDI文件，生成变体，直接点击播放器试听（内置音源）。")
 
 # 初始化session_state
@@ -83,7 +83,7 @@ def get_midi_bytes(melody_stream):
 def get_midi_player_html(midi_bytes, player_id):
     """
     返回一个仅包含播放条的 HTML 片段，背景透明（由父容器提供奶绿色），
-    按钮和进度条使用深绿色，无多余线条。
+    按钮和进度条使用深绿色，无任何边框、阴影或多余线条。
     """
     import base64
     midi_base64 = base64.b64encode(midi_bytes).decode('utf-8')
@@ -104,6 +104,7 @@ def get_midi_player_html(midi_bytes, player_id):
                 background: transparent;
                 border: none;
                 box-shadow: none;
+                outline: none;
                 --midi-player-background: transparent;
                 --midi-player-progress-background: transparent;
                 --midi-player-button-color: #2d4a1e;
