@@ -349,6 +349,8 @@ def develop_motif_with_progression_advanced(
         left_chord = chord.Chord(chord_notes)
         left_chord.quarterLength = chord_duration_beats
         left_chord.offset = current_time
+        # 左手力度减小16%（相对于标准力度100）
+        left_chord.volume.velocity = 84
         left_part.append(left_chord)
         
         # 右手旋律：将动机中的音符逐个添加，并调整音高到当前和弦内音
