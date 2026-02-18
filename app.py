@@ -195,7 +195,7 @@ if st.session_state.variants:
                 player_html = get_midi_player_html(midi_bytes, idx)
                 st.components.v1.html(player_html, height=60)
                 
-                # 感受词输入框（标题已融入placeholder）
+                # 感受词输入框（标题融入placeholder）
                 if idx < len(st.session_state.labels_feelings):
                     current_f = st.session_state.labels_feelings[idx] if st.session_state.labels_feelings[idx] is not None else ""
                 else:
@@ -211,8 +211,8 @@ if st.session_state.variants:
                 )
                 
                 # 按钮行：下载靠左，保存靠右并与输入框右边缘对齐
-                # 使用列比例：[1, 'auto']，让保存列宽度自适应内容
-                btn_col1, btn_col2 = st.columns([1, 'auto'])
+                # 使用等宽两列，并在第二列添加CSS使按钮右对齐
+                btn_col1, btn_col2 = st.columns([1, 1])
                 with btn_col1:
                     st.download_button(
                         "⬇️ 下载MIDI文件",
@@ -222,15 +222,15 @@ if st.session_state.variants:
                         key=f"download_{idx}"
                     )
                 with btn_col2:
-                    # 添加CSS使按钮容器内的按钮右对齐
+                    # 添加CSS使该列按钮靠右
                     st.markdown(
                         """
                         <style>
                         div[data-testid="column"]:nth-child(2) .stButton {
-                            text-align: right;
+                            display: flex;
+                            justify-content: flex-end;
                         }
                         div[data-testid="column"]:nth-child(2) .stButton button {
-                            display: inline-block;
                             margin-left: auto;
                         }
                         </style>
@@ -271,4 +271,3 @@ if st.session_state.variants:
                 new_b = st.slider("好听度评分", 0.0, 1.0, current_b, key=f"b_{idx}")
 else:
     st.info("请在左侧上传MIDI文件并生成变体")
-    
