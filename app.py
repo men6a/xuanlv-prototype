@@ -157,7 +157,6 @@ class MusicTheoryEngine:
         根据罗马数字和弦级数获取和弦内音（MIDI模12）
         chord_degree: 和弦级数索引（0=I, 1=II, 2=III, ...）
         简单实现：大三和弦（根音、根音+4、根音+7）
-        如果是小调，可能需要调整，但为简化，暂时统一用大三和弦。
         """
         note_to_idx = {'C':0, 'C#':1, 'Db':1, 'D':2, 'D#':3, 'Eb':3, 'E':4, 
                       'F':5, 'F#':6, 'Gb':6, 'G':7, 'G#':8, 'Ab':8, 'A':9, 
@@ -202,8 +201,8 @@ def generate_variant(melody_stream, surprise_strength=0.3,
                      key='C', mode='major', style='classical',
                      progression=None):
     """
-    融合多维度音乐规则的旋律变体生成 v3.1
-    新增和弦进程约束
+    融合多维度音乐规则的旋律变体生成 v3.2
+    修复了装饰音替换导致的索引越界问题
     """
     # 获取音阶
     scale_notes = MusicTheoryEngine.get_scale_notes(key, mode)
@@ -248,7 +247,7 @@ def generate_variant(melody_stream, surprise_strength=0.3,
     if not original_notes:
         return stream.Stream()
     
-    # 获取每个音符的offset（起始时间）
+    # 获取每个音符的起始时间（offset）
     offsets = [n.offset for n in original_notes]
     
     new_notes = [copy.deepcopy(n) for n in original_notes]
@@ -265,14 +264,25 @@ def generate_variant(melody_stream, surprise_strength=0.3,
             other_voices.append(original_pitches[i] + random.choice([-12, 0, 12]))
     
     n_changes = max(1, int(len(new_notes) * surprise_strength))
-    n_ornaments = int(len(new_notes) * style_params['ornament_prob'] * surprise_strength)
     
+    # 主循环
     for _ in range(n_changes):
+        if len(new_notes) == 0:
+            break
         idx = random.randint(0, len(new_notes)-1)
         current_note = new_notes[idx]
         current_pitch = current_note.pitch.midi
         current_dur = current_note.quarterLength
-        current_offset = offsets[idx]  # 原音符的起始时间
+        
+        # 确保 offsets 和 new_notes 长度一致（重新计算）
+        if len(offsets) != len(new_notes):
+            # 重新计算 offsets：从0开始累加时值
+            new_offsets = [0.0]
+            for i in range(1, len(new_notes)):
+                new_offsets.append(new_offsets[i-1] + new_notes[i-1].quarterLength)
+            offsets = new_offsets
+        
+        current_offset = offsets[idx] if idx < len(offsets) else 0.0
         
         modify_type = random.choices(
             ['pitch', 'rhythm', 'both', 'ornament'],
@@ -284,13 +294,16 @@ def generate_variant(melody_stream, surprise_strength=0.3,
             ornament_type = random.choice(list(ORNAMENTS.keys()))
             ornament_notes = ORNAMENTS[ornament_type](current_pitch)
             ornament_stream = []
+            sub_dur = current_dur / len(ornament_notes)
             for i, p in enumerate(ornament_notes):
                 new_n = note.Note()
                 new_n.pitch.midi = p
-                new_n.quarterLength = current_dur / len(ornament_notes)
+                new_n.quarterLength = sub_dur
                 ornament_stream.append(new_n)
+            # 替换原音符
             new_notes[idx:idx+1] = ornament_stream
-            # 注意：offset会改变，但为简化，不处理offsets同步
+            # 重新计算 offsets（将在下一轮循环中更新）
+            # 继续下一轮循环，不再处理当前索引的其他修改
             continue
         
         # ----- 音高修改 -----
@@ -344,7 +357,7 @@ def generate_variant(melody_stream, surprise_strength=0.3,
                 chord_tones = progression_tones[chord_idx]
                 # 检查candidate是否在和弦内
                 if (candidate % 12) not in chord_tones and random.random() > surprise_strength:
-                    # 如果不在和弦内且惊喜度不够，则调整到最近的和弦内音
+                    # 调整到最近的和弦内音
                     best_pitch = candidate
                     min_dist = 12
                     for ct in chord_tones:
@@ -357,7 +370,7 @@ def generate_variant(melody_stream, surprise_strength=0.3,
                     candidate = best_pitch
             
             # 声部进行评分
-            if idx > 0:
+            if idx > 0 and idx < len(new_notes):
                 prev_pitch = new_notes[idx-1].pitch.midi
                 voice_score = MusicTheoryEngine.voice_leading_score(prev_pitch, candidate, other_voices)
                 if voice_score < 0.3 and random.random() > surprise_strength:
@@ -461,7 +474,6 @@ with st.sidebar:
                 note_list = list(score.parts[0].flat.getElementsByClass(note.Note))
                 if note_list:
                     melody_stream = stream.Stream(note_list)
-                    # 保留offset信息，在生成时使用
                     raw_melodies.append(melody_stream)
                     st.success(f"已导入: {f.name}")
                 else:
@@ -481,7 +493,7 @@ with st.sidebar:
     style_options = ['classical', 'jazz', 'folk']
     selected_style = st.selectbox("风格", style_options, index=0)
     
-    # 新增：和弦进程选择
+    # 和弦进程选择
     progression_options = ["无"] + list(MusicTheoryEngine.COMMON_PROGRESSIONS.keys())
     selected_progression = st.selectbox("和弦进程", progression_options, index=0)
 
