@@ -182,7 +182,11 @@ with st.sidebar:
 # 主界面：标注（默认展开）
 if st.session_state.variants:
     for idx, var in enumerate(st.session_state.variants[:10]):  # 只显示前10个
-        with st.expander(f"变体 #{idx}", expanded=True):
+        # 动态构建标题，包含保存标记
+        indicator = st.session_state.save_indicator[idx] if idx < len(st.session_state.save_indicator) else ""
+        expander_title = f"变体 #{idx} {indicator}"
+        
+        with st.expander(expander_title, expanded=True):
             left_col, right_col = st.columns(2)
             
             with left_col:
@@ -192,12 +196,21 @@ if st.session_state.variants:
                 player_html = get_midi_player_html(midi_bytes, idx)
                 st.components.v1.html(player_html, height=60)
                 
-                # 标题行：左侧为“请标注变体听感”，右侧为保存按钮
-                title_col1, title_col2 = st.columns([3, 1])
+                # 标题行：左侧为“请标注变体听感”，右侧为保存按钮（靠右，不换行）
+                title_col1, title_col2 = st.columns([2.5, 1.5])
                 with title_col1:
                     st.markdown("**请标注变体听感**")
                 with title_col2:
-                    # 保存按钮靠右
+                    # 强制按钮不换行
+                    st.markdown("""
+                    <style>
+                    div[data-testid="column"]:nth-of-type(2) .stButton button {
+                        white-space: nowrap;
+                        width: auto;
+                        min-width: 110px;
+                    }
+                    </style>
+                    """, unsafe_allow_html=True)
                     if st.button("💾 保存标注", key=f"save_left_{idx}"):
                         # 获取当前值
                         current_s = st.session_state.get(f"s_{idx}", 0.5)
@@ -217,6 +230,7 @@ if st.session_state.variants:
                         st.session_state.labels_beauty[idx] = current_b
                         st.session_state.labels_feelings[idx] = current_f
                         st.session_state.save_indicator[idx] = "✅"
+                        st.rerun()  # 立即刷新以更新标题
                 
                 # 感受词输入框
                 if idx < len(st.session_state.labels_feelings):
@@ -248,18 +262,13 @@ if st.session_state.variants:
                 new_s = st.slider("意外度", 0.0, 1.0, current_s, key=f"s_{idx}")
                 new_b = st.slider("好听度", 0.0, 1.0, current_b, key=f"b_{idx}")
                 
-                # 右侧列下方：下载按钮和保存提示（✅）
-                col1, col2 = st.columns([1, 1])
-                with col1:
-                    st.download_button(
-                        "⬇️ 下载MIDI文件",
-                        data=get_midi_bytes(var),
-                        file_name=f"variant_{idx}.mid",
-                        mime="audio/midi",
-                        key=f"download_{idx}"
-                    )
-                with col2:
-                    if idx < len(st.session_state.save_indicator):
-                        st.markdown(f"<div style='text-align: center; font-size: 1.2rem;'>{st.session_state.save_indicator[idx]}</div>", unsafe_allow_html=True)
+                # 右侧列下方只保留下载按钮（保存提示已移至标题）
+                st.download_button(
+                    "⬇️ 下载MIDI文件",
+                    data=get_midi_bytes(var),
+                    file_name=f"variant_{idx}.mid",
+                    mime="audio/midi",
+                    key=f"download_{idx}"
+                )
 else:
     st.info("请在左侧上传MIDI文件并生成变体")
