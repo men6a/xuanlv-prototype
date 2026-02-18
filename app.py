@@ -82,38 +82,7 @@ class MusicTheoryEngine:
         'mixolydian': [0, 2, 4, 5, 7, 9, 10], # 混合利底亚
     }
     
-    # 2. 声部进行规则
-    VOICE_LEADING = {
-        'max_interval': 12,
-        'prefer_step': 0.6,
-        'prefer_skip': 0.3,
-        'prefer_leap': 0.1,
-        'contrary_motion': 0.4,
-    }
-    
-    # 3. 风格一致性参数
-    STYLE_CONSISTENCY = {
-        'classical': {
-            'ornament_prob': 0.3,
-            'sequence_prob': 0.4,
-            'repeat_prob': 0.3,
-            'dissonance_tolerance': 0.2
-        },
-        'jazz': {
-            'ornament_prob': 0.5,
-            'sequence_prob': 0.2,
-            'repeat_prob': 0.2,
-            'dissonance_tolerance': 0.6
-        },
-        'folk': {
-            'ornament_prob': 0.2,
-            'sequence_prob': 0.3,
-            'repeat_prob': 0.4,
-            'dissonance_tolerance': 0.1
-        }
-    }
-    
-    # 4. 音程协和度矩阵
+    # 2. 音程协和度矩阵
     CONSONANCE_MATRIX = {
         0: 1.0, 12: 1.0,
         7: 0.9, 19: 0.9,
@@ -139,12 +108,10 @@ class MusicTheoryEngine:
     def roman_or_num_to_degree(cls, token):
         """将罗马数字或阿拉伯数字转换为度数（0=I）"""
         token = token.strip()
-        # 尝试阿拉伯数字
         if token.isdigit():
             num = int(token)
             if 1 <= num <= 7:
-                return num - 1  # 1->0, 2->1, ...
-        # 尝试罗马数字
+                return num - 1
         roman_map = {
             'I': 0, 'II': 1, 'III': 2, 'IV': 3, 'V': 4, 'VI': 5, 'VII': 6,
             'i': 0, 'ii': 1, 'iii': 2, 'iv': 3, 'v': 4, 'vi': 5, 'vii': 6
@@ -152,20 +119,16 @@ class MusicTheoryEngine:
         base = re.match(r'^[IiVv]+', token)
         if base:
             return roman_map.get(base.group(), 0)
-        return 0  # 默认I
+        return 0
     
     @classmethod
     def get_chord_tones(cls, chord_degree, key='C', mode='major'):
-        """
-        根据度数获取和弦内音（MIDI模12）
-        度数: 0=I, 1=II, ...
-        简单实现：大三和弦（根音、根音+4、根音+7）
-        """
+        """获取和弦内音（大三和弦）"""
         note_to_idx = {'C':0, 'C#':1, 'Db':1, 'D':2, 'D#':3, 'Eb':3, 'E':4, 
                       'F':5, 'F#':6, 'Gb':6, 'G':7, 'G#':8, 'Ab':8, 'A':9, 
                       'A#':10, 'Bb':10, 'B':11}
         root_idx = note_to_idx.get(key, 0)
-        degree_to_interval = [0, 2, 4, 5, 7, 9, 11]  # 大调
+        degree_to_interval = [0, 2, 4, 5, 7, 9, 11]
         if chord_degree >= len(degree_to_interval):
             chord_degree = chord_degree % 7
         root_pitch_class = (root_idx + degree_to_interval[chord_degree]) % 12
@@ -173,7 +136,7 @@ class MusicTheoryEngine:
     
     @classmethod
     def get_bass_note(cls, chord_degree, key='C', mode='major', octave=3):
-        """获取指定和弦的根音音高（MIDI值），octave为八度（C4=60）"""
+        """获取和弦根音MIDI值"""
         note_to_idx = {'C':0, 'C#':1, 'Db':1, 'D':2, 'D#':3, 'Eb':3, 'E':4, 
                       'F':5, 'F#':6, 'Gb':6, 'G':7, 'G#':8, 'Ab':8, 'A':9, 
                       'A#':10, 'Bb':10, 'B':11}
@@ -182,105 +145,175 @@ class MusicTheoryEngine:
         if chord_degree >= len(degree_to_interval):
             chord_degree = chord_degree % 7
         pitch_class = (root_idx + degree_to_interval[chord_degree]) % 12
-        # 转换为MIDI音高：octave*12 + pitch_class，octave 0为C0
         return octave * 12 + pitch_class
     
     @classmethod
     def interval_consonance(cls, interval):
         interval = abs(interval) % 12
         return cls.CONSONANCE_MATRIX.get(interval, 0.5)
+    
+    @classmethod
+    def adjust_to_scale(cls, pitch, scale_notes):
+        """将音高调整到最近的调内音"""
+        if (pitch % 12) in scale_notes:
+            return pitch
+        best = pitch
+        min_dist = 12
+        for sn in scale_notes:
+            for octave in [-1, 0, 1]:
+                test = sn + ((pitch // 12) + octave) * 12
+                dist = abs(test - pitch)
+                if dist < min_dist and 0 <= test <= 127:
+                    min_dist = dist
+                    best = test
+        return best
+    
+    @classmethod
+    def adjust_to_chord(cls, pitch, chord_tones):
+        """将音高调整到最近的和弦内音"""
+        if (pitch % 12) in chord_tones:
+            return pitch
+        best = pitch
+        min_dist = 12
+        for ct in chord_tones:
+            for octave in [-1, 0, 1]:
+                test = ct + ((pitch // 12) + octave) * 12
+                dist = abs(test - pitch)
+                if dist < min_dist and 0 <= test <= 127:
+                    min_dist = dist
+                    best = test
+        return best
+    
+    @classmethod
+    def generate_melody_for_chord(cls, chord_duration, chord_tones, scale_notes, rhythm_pattern, style, motif_pitches, motif_weight, prev_pitch=None, motif_idx=0):
+        """
+        根据和弦和节奏模式生成旋律片段，并可混合动机音高
+        motif_pitches: 动机音高序列（MIDI值列表）
+        motif_weight: 动机保留度 (0-1)，概率使用动机音高
+        返回 (音符列表, 最后一个音高, 新的动机索引)
+        """
+        style_params = {
+            'classical': {'passing': 0.3, 'neighbor': 0.2, 'leap': 0.1},
+            'jazz': {'passing': 0.4, 'neighbor': 0.3, 'leap': 0.2},
+            'folk': {'passing': 0.2, 'neighbor': 0.2, 'leap': 0.1}
+        }.get(style, {'passing': 0.3, 'neighbor': 0.2, 'leap': 0.1})
+        
+        total_pattern_dur = sum(rhythm_pattern)
+        scale_factor = chord_duration / total_pattern_dur
+        scaled_durs = [d * scale_factor for d in rhythm_pattern]
+        
+        notes = []
+        current_time = 0.0
+        last_pitch = prev_pitch
+        
+        for i, dur in enumerate(scaled_durs):
+            # 根据权重决定是否使用动机音高
+            use_motif = (random.random() < motif_weight) and motif_pitches
+            if use_motif:
+                # 取动机音高（循环索引）
+                motif_pitch = motif_pitches[motif_idx % len(motif_pitches)]
+                motif_idx += 1
+                # 调整动机音高到最近的和弦内音
+                pitch_val = cls.adjust_to_chord(motif_pitch, chord_tones)
+                # 再确保在调内（以防和弦音不在调内？但和弦音应在调内）
+                pitch_val = cls.adjust_to_scale(pitch_val, scale_notes)
+            else:
+                # 自由生成
+                chord_tones_list = list(chord_tones)
+                if random.random() < 0.7:  # 70%和弦音
+                    pitch_class = random.choice(chord_tones_list)
+                else:
+                    scale_list = list(scale_notes)
+                    non_chord = [p for p in scale_list if p not in chord_tones]
+                    if non_chord:
+                        pitch_class = random.choice(non_chord)
+                    else:
+                        pitch_class = random.choice(chord_tones_list)
+                # 确定八度
+                if last_pitch is not None:
+                    best_pitch = None
+                    min_dist = 100
+                    for octave in range(2, 6):
+                        candidate = octave * 12 + pitch_class
+                        if 0 <= candidate <= 127:
+                            dist = abs(candidate - last_pitch)
+                            if dist < min_dist:
+                                min_dist = dist
+                                best_pitch = candidate
+                    pitch_val = best_pitch
+                else:
+                    pitch_val = 60 + (pitch_class - 60 % 12)
+                    if pitch_val < 48:
+                        pitch_val += 12
+                    elif pitch_val > 84:
+                        pitch_val -= 12
+            
+            n = note.Note()
+            n.pitch.midi = pitch_val
+            n.quarterLength = dur
+            n.offset = current_time
+            notes.append(n)
+            
+            current_time += dur
+            last_pitch = pitch_val
+        
+        return notes, last_pitch, motif_idx
 
 # ==================== 动机发展功能（带左右手） ====================
 
 def get_total_measures(stream_obj):
-    """获取流的总小节数（基于音符的measureNumber）"""
-    measures = set()
-    for n in stream_obj.flat.notes:
-        if n.measureNumber is not None:
-            measures.add(n.measureNumber)
-    if measures:
-        return max(measures)
-    return 0
+    """估算总小节数（基于offset）"""
+    if not stream_obj:
+        return 0
+    max_offset = max(n.offset + n.quarterLength for n in stream_obj)
+    return int(max_offset // 4) + 1
 
-def extract_motif(original_stream, start_measure, length_measures):
-    """
-    从原始流中提取指定起始小节和长度的小节作为动机
-    返回一个新的stream，包含这些小节的所有音符（保持原始offset）
-    """
-    motif_stream = stream.Stream()
-    notes = list(original_stream.flat.notes)
-    motif_notes = []
-    for n in notes:
-        if n.measureNumber is not None and start_measure <= n.measureNumber < start_measure + length_measures:
-            motif_notes.append(n)
-    
+def extract_motif(notes, start_measure, length_measures):
+    """从音符列表提取动机，返回音符列表和音高序列"""
+    start_offset = (start_measure - 1) * 4.0
+    end_offset = (start_measure + length_measures - 1) * 4.0
+    motif_notes = [copy.deepcopy(n) for n in notes if n.offset >= start_offset and n.offset < end_offset]
     if not motif_notes:
-        return None
-    
-    motif_notes.sort(key=lambda x: x.offset)
-    min_offset = motif_notes[0].offset
+        return None, None
+    # 重置offset
+    min_offset = min(n.offset for n in motif_notes)
     for n in motif_notes:
-        new_n = copy.deepcopy(n)
-        new_n.offset = n.offset - min_offset
-        motif_stream.append(new_n)
-    
-    return motif_stream
+        n.offset -= min_offset
+    motif_pitches = [n.pitch.midi for n in motif_notes]
+    return motif_notes, motif_pitches
 
-def apply_development(motif_notes, technique, scale_notes):
-    """对音符列表应用发展手法"""
+def extract_rhythm_pattern(motif_notes):
+    return [n.quarterLength for n in motif_notes]
+
+def apply_development_to_pitches(motif_pitches, technique, scale_notes):
+    """对音高序列应用发展手法（倒影、逆行），返回新序列"""
     if technique == "重复":
-        return motif_notes
+        return motif_pitches[:]
     elif technique == "倒影":
-        if not motif_notes:
-            return motif_notes
-        axis = motif_notes[0].pitch.midi
-        new_notes = []
-        for n in motif_notes:
-            new_n = copy.deepcopy(n)
-            new_pitch = axis - (n.pitch.midi - axis)
-            if (new_pitch % 12) not in scale_notes:
-                best = new_pitch
-                min_dist = 12
-                for scale_note in scale_notes:
-                    for octave in [-1, 0, 1]:
-                        test = scale_note + ((new_pitch // 12) + octave) * 12
-                        dist = abs(test - new_pitch)
-                        if dist < min_dist and 0 <= test <= 127:
-                            min_dist = dist
-                            best = test
-                new_pitch = best
-            new_n.pitch.midi = new_pitch
-            new_notes.append(new_n)
-        return new_notes
+        if not motif_pitches:
+            return []
+        axis = motif_pitches[0]
+        new_pitches = []
+        for p in motif_pitches:
+            reflected = axis - (p - axis)
+            reflected = MusicTheoryEngine.adjust_to_scale(reflected, scale_notes)
+            new_pitches.append(reflected)
+        return new_pitches
     elif technique == "逆行":
-        return list(reversed(motif_notes))
+        return list(reversed(motif_pitches))
     else:
-        return motif_notes
-
-def limit_range(notes, min_pitch, max_pitch):
-    """将音符限制在指定音域内，超出时八度移位"""
-    for n in notes:
-        p = n.pitch.midi
-        if p < min_pitch:
-            # 向上移八度直到进入范围
-            while p < min_pitch:
-                p += 12
-        elif p > max_pitch:
-            while p > max_pitch:
-                p -= 12
-        n.pitch.midi = p
-    return notes
+        return motif_pitches[:]
 
 def develop_motif_with_progression_advanced(
-    motif_stream, target_measures, chord_sequence_str,
-    chords_per_bar, development_technique, stretch_factor,
-    key='C', mode='major', beats_per_measure=4.0
+    motif_notes, motif_pitches, target_measures, chord_sequence_str,
+    chords_per_bar, development_technique, stretch_factor, motif_weight,
+    key='C', mode='major', style='classical', beats_per_measure=4.0
 ):
     """
-    将动机发展为指定小节数的乐段，支持自定义和弦进程、每小节和弦数、发展手法、节奏伸缩
-    返回一个Score，包含右手旋律Part和左手柱式和弦Part
+    根据和弦进程生成旋律，混合动机音高
+    motif_weight: 动机保留度 (0-1)
     """
-    if motif_stream is None or len(motif_stream.notes) == 0:
+    if not motif_notes:
         return stream.Score()
     
     # 解析和弦序列
@@ -297,97 +330,69 @@ def develop_motif_with_progression_advanced(
     for i in range(total_chords_needed):
         chord_cycle.append(chord_degrees[i % len(chord_degrees)])
     
-    # 处理右手旋律
-    motif_notes = list(motif_stream.notes)
     scale_notes = MusicTheoryEngine.get_scale_notes(key, mode)
-    developed_notes = apply_development(motif_notes, development_technique, scale_notes)
     
+    # 对动机音高应用发展手法
+    developed_pitches = apply_development_to_pitches(motif_pitches, development_technique, scale_notes)
+    # 对动机音符应用伸缩（节奏模式会从原始音符提取，但音高序列已经处理）
     if stretch_factor != 1.0:
-        stretched_notes = []
-        for n in developed_notes:
-            new_n = copy.deepcopy(n)
-            new_n.quarterLength = n.quarterLength * stretch_factor
-            stretched_notes.append(new_n)
-        developed_notes = stretched_notes
+        # 音高序列不变，但节奏会在后续用伸缩后的节奏模式
+        pass
     
-    # 计算原始动机的音域，用于限制右手旋律在2个八度内
-    if developed_notes:
-        pitches = [n.pitch.midi for n in developed_notes]
-        avg_pitch = np.mean(pitches)
-        # 设置音域范围：以平均音高为中心，上下12半音（两个八度）
-        min_allowed = avg_pitch - 12
-        max_allowed = avg_pitch + 12
-        developed_notes = limit_range(developed_notes, min_allowed, max_allowed)
+    # 提取节奏模式（从原始动机音符，未伸缩）
+    rhythm_pattern = extract_rhythm_pattern(motif_notes)
+    if stretch_factor != 1.0:
+        rhythm_pattern = [d * stretch_factor for d in rhythm_pattern]
     
-    # 创建右手Part
+    # 创建左右手Part
     right_part = stream.Part()
     right_part.partName = "右手旋律"
     right_part.id = 'right'
     right_part.append(instrument.Piano())
     
-    # 左手Part
     left_part = stream.Part()
     left_part.partName = "左手和弦"
     left_part.id = 'left'
     left_part.append(instrument.Piano())
     
-    # 生成乐段
     current_time = 0.0
-    chord_index = 0
-    while chord_index < len(chord_cycle):
-        current_chord_degree = chord_cycle[chord_index]
-        chord_tones = MusicTheoryEngine.get_chord_tones(current_chord_degree, key, mode)
+    last_pitch = None
+    motif_idx = 0  # 用于循环取动机音高
+    
+    for chord_idx, chord_degree in enumerate(chord_cycle):
+        chord_tones = MusicTheoryEngine.get_chord_tones(chord_degree, key, mode)
         
-        # 左手柱式和弦（根音、三音、五音）
-        # 根音放在C3附近（octave=3），三音和五音根据和弦类型（大三和弦）确定
-        root = MusicTheoryEngine.get_bass_note(current_chord_degree, key, mode, octave=3)
-        # 三音：根音+4半音，但需要确保三音在调内（实际就是和弦内音）
-        third = root + 4  # 大三度
-        fifth = root + 7  # 纯五度
-        # 确保音高在合理范围内
-        chord_notes = [root, third, fifth]
-        left_chord = chord.Chord(chord_notes)
+        # 生成旋律片段，混合动机音高
+        melody_notes, last_pitch, motif_idx = MusicTheoryEngine.generate_melody_for_chord(
+            chord_duration_beats, chord_tones, scale_notes, rhythm_pattern, style,
+            developed_pitches, motif_weight, last_pitch, motif_idx
+        )
+        
+        for n in melody_notes:
+            new_n = copy.deepcopy(n)
+            new_n.offset = current_time + n.offset
+            right_part.append(new_n)
+        
+        # 左手和弦
+        root = MusicTheoryEngine.get_bass_note(chord_degree, key, mode, octave=3)
+        third = root + 4
+        fifth = root + 7
+        left_chord = chord.Chord([root, third, fifth])
         left_chord.quarterLength = chord_duration_beats
         left_chord.offset = current_time
-        # 左手力度减小16%（相对于标准力度100）
         left_chord.volume.velocity = 84
         left_part.append(left_chord)
         
-        # 右手旋律：将动机中的音符逐个添加，并调整音高到当前和弦内音
-        for n in developed_notes:
-            new_n = copy.deepcopy(n)
-            new_n.offset = current_time + n.offset
-            
-            orig_pitch = n.pitch.midi
-            if (orig_pitch % 12) not in chord_tones:
-                # 调整到最近的和弦内音
-                best_pitch = orig_pitch
-                min_dist = 12
-                for ct in chord_tones:
-                    for octave in [-1, 0, 1]:
-                        test_pitch = ct + ((orig_pitch // 12) + octave) * 12
-                        dist = abs(test_pitch - orig_pitch)
-                        if dist < min_dist and 0 <= test_pitch <= 127:
-                            min_dist = dist
-                            best_pitch = test_pitch
-                new_n.pitch.midi = best_pitch
-            
-            right_part.append(new_n)
-        
         current_time += chord_duration_beats
-        chord_index += 1
     
-    # 创建Score并添加两个Part
     score = stream.Score()
     score.append(right_part)
     score.append(left_part)
-    
     return score
 
 # ==================== 辅助函数 ====================
 
 def get_midi_bytes(score):
-    """将music21 Score转换为MIDI文件字节数据"""
     temp = tempfile.NamedTemporaryFile(suffix='.mid', delete=False)
     mf = midi.translate.music21ObjectToMidiFile(score)
     mf.open(temp.name, 'wb')
@@ -435,7 +440,7 @@ def get_midi_player_html(midi_bytes, player_id):
 with st.sidebar:
     st.markdown("### 1. 导入MIDI文件")
     uploaded_files = st.file_uploader("选择MIDI文件", type=['mid','midi'], accept_multiple_files=True)
-    raw_melodies = []
+    raw_melodies = []  # 存储原始旋律的note列表
     if uploaded_files:
         for f in uploaded_files:
             with tempfile.NamedTemporaryFile(delete=False, suffix='.mid') as tmp:
@@ -443,11 +448,9 @@ with st.sidebar:
                 tmp_path = tmp.name
             try:
                 score = converter.parse(tmp_path)
-                # 提取第一个Part作为旋律（假设是单旋律）
                 note_list = list(score.parts[0].flat.getElementsByClass(note.Note))
                 if note_list:
-                    melody_stream = stream.Stream(note_list)
-                    raw_melodies.append(melody_stream)
+                    raw_melodies.append(note_list)
                     st.success(f"已导入: {f.name}")
                 else:
                     st.warning(f"无音符: {f.name}")
@@ -458,8 +461,9 @@ with st.sidebar:
 
     st.markdown("### 2. 动机发展")
     if raw_melodies:
-        total_measures = get_total_measures(raw_melodies[0])
-        st.caption(f"当前MIDI总小节数: {total_measures}")
+        # 估算总小节数
+        total_measures_est = get_total_measures(raw_melodies[0])
+        st.caption(f"当前MIDI估算总小节数: {total_measures_est}")
         
         key_options = ['C', 'G', 'D', 'A', 'E', 'F', 'Bb', 'Eb', 'Ab']
         selected_key = st.selectbox("调性", key_options, index=0)
@@ -470,7 +474,7 @@ with st.sidebar:
         style_options = ['classical', 'jazz', 'folk']
         selected_style = st.selectbox("风格", style_options, index=0)
         
-        start_measure = st.number_input("起始小节", min_value=1, max_value=max(1, total_measures), value=1)
+        start_measure = st.number_input("起始小节", min_value=1, max_value=max(1, total_measures_est), value=1)
         motif_length = st.number_input("动机长度（小节）", min_value=1, max_value=16, value=2)
         target_length = st.number_input("目标乐段长度（小节）", min_value=1, max_value=64, value=18)
         
@@ -481,19 +485,23 @@ with st.sidebar:
         dev_technique = st.selectbox("发展手法", ["重复", "倒影", "逆行"], index=0)
         stretch_factor = st.slider("节奏伸缩因子", 0.5, 2.0, 1.0, step=0.1)
         
+        # 新增：动机保留度滑块
+        motif_weight = st.slider("动机保留度", 0.0, 1.0, 0.5, step=0.05,
+                                 help="0：完全基于和弦生成旋律；1：尽可能使用动机音高（并调整到当前和弦）")
+        
         if st.button("生成带伴奏的乐段"):
             if not raw_melodies:
                 st.warning("请先导入MIDI")
             else:
-                source_stream = raw_melodies[0]
-                motif = extract_motif(source_stream, start_measure, motif_length)
-                if motif is None or len(motif.notes) == 0:
+                source_notes = raw_melodies[0]
+                motif_notes, motif_pitches = extract_motif(source_notes, start_measure, motif_length)
+                if not motif_notes:
                     st.error("指定小节内无音符，请调整范围")
                 else:
                     developed_score = develop_motif_with_progression_advanced(
-                        motif, target_length, chord_prog_input,
-                        chords_per_bar, dev_technique, stretch_factor,
-                        key=selected_key, mode=selected_mode, beats_per_measure=4.0
+                        motif_notes, motif_pitches, target_length, chord_prog_input,
+                        chords_per_bar, dev_technique, stretch_factor, motif_weight,
+                        key=selected_key, mode=selected_mode, style=selected_style, beats_per_measure=4.0
                     )
                     new_idx = len(st.session_state.variants)
                     st.session_state.variants.append(developed_score)
@@ -506,6 +514,7 @@ with st.sidebar:
                         'chords_per_bar': chords_per_bar,
                         'technique': dev_technique,
                         'stretch': stretch_factor,
+                        'motif_weight': motif_weight,
                         'key': selected_key,
                         'mode': selected_mode,
                         'style': selected_style
@@ -529,7 +538,8 @@ if st.session_state.variants:
             param_str = (f"动机发展: {meta.get('start_measure')}小节起{meta.get('motif_length')}小节 → {meta.get('target_length')}小节 | "
                          f"调性:{meta.get('key','C')} {meta.get('mode','major')} {meta.get('style','classical')} | "
                          f"和弦:{meta.get('chord_prog')} | 密度:{meta.get('chords_per_bar')}/小节 | "
-                         f"手法:{meta.get('technique')} | 伸缩:{meta.get('stretch')}")
+                         f"手法:{meta.get('technique')} | 伸缩:{meta.get('stretch')} | "
+                         f"动机保留:{meta.get('motif_weight',0.5):.2f}")
         else:
             param_str = "变体"
         
