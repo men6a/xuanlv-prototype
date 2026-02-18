@@ -8,8 +8,8 @@ import base64
 from music21 import converter, note, stream, midi
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
-st.title("🎵 玄·律标注原型 (直接播放·默认展开)")
-st.markdown("上传MIDI文件，生成变体，直接点击播放按钮试听。")
+st.title("🎵 玄·律标注原型 (最终版·自动检测播放器)")
+st.markdown("上传MIDI文件，生成变体，点击播放按钮试听。如果播放失败，请使用下载按钮。")
 
 # 初始化session_state
 if 'variants' not in st.session_state:
@@ -21,7 +21,7 @@ if 'labels_surprise' not in st.session_state:
 if 'labels_beauty' not in st.session_state:
     st.session_state.labels_beauty = []
 
-# ---------- 生成变体函数（增强音乐性）----------
+# ---------- 生成变体函数 ----------
 def generate_variant(melody_stream, surprise_strength=0.3):
     C_MAJOR = {0, 2, 4, 5, 7, 9, 11}
     COMMON_DURS = [0.5, 1, 2]
@@ -63,7 +63,7 @@ def generate_variant(melody_stream, surprise_strength=0.3):
     for n in new_notes:
         new_stream.append(n)
     return new_stream
-# ---------------------------------------------
+# ---------------------------------
 
 def get_midi_bytes(melody_stream):
     temp = tempfile.NamedTemporaryFile(suffix='.mid', delete=False)
@@ -81,70 +81,120 @@ def midi_to_base64(midi_bytes):
     return base64.b64encode(midi_bytes).decode('utf-8')
 
 def get_midi_player_html(midi_base64, player_id):
-    """返回一个内嵌MIDI播放器的HTML片段，包含播放/停止按钮和状态显示"""
+    """返回一个带有库加载检测的MIDI播放器HTML"""
     html = f"""
-    <div style="border:1px solid #ccc; padding:8px; margin:5px 0; border-radius:5px;">
+    <div style="border:1px solid #ddd; padding:8px; margin:5px 0; border-radius:5px; background:#f9f9f9;">
         <button onclick="play_{player_id}()">▶️ 播放</button>
         <button onclick="stop_{player_id}()">⏹️ 停止</button>
-        <span id="status_{player_id}" style="margin-left:10px;">⚪ 就绪</span>
-        <div style="font-size:0.8em; color:gray;" id="debug_{player_id}"></div>
+        <span id="status_{player_id}" style="margin-left:10px;">⚪ 准备就绪</span>
+        <div id="debug_{player_id}" style="font-size:0.8em; color:#666; margin-top:4px;"></div>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/midijs@2.0.0/dist/MidiPlayer.min.js"></script>
     <script>
+    (function() {{
+        // 尝试从多个CDN加载MidiPlayer库
+        function loadScript(url, callback) {{
+            var script = document.createElement('script');
+            script.type = 'text/javascript';
+            script.src = url;
+            script.onload = callback;
+            script.onerror = function() {{
+                console.log('Failed to load ' + url);
+                callback(new Error('加载失败'));
+            }};
+            document.head.appendChild(script);
+        }}
+
         var player_{player_id};
         var isPlaying_{player_id} = false;
+        var libLoaded = false;
 
-        function play_{player_id}() {{
+        // 检查库是否已存在，否则加载
+        function ensureLib(callback) {{
+            if (window.MidiPlayer) {{
+                libLoaded = true;
+                callback();
+                return;
+            }}
+            // 尝试两个CDN
+            var cdnList = [
+                'https://cdn.jsdelivr.net/npm/midijs@2.0.0/dist/MidiPlayer.min.js',
+                'https://unpkg.com/midijs@2.0.0/dist/MidiPlayer.min.js'
+            ];
+            var attempt = 0;
+            function tryNext() {{
+                if (attempt >= cdnList.length) {{
+                    document.getElementById('debug_{player_id}').innerText = '所有CDN均加载失败，请使用下载。';
+                    callback(new Error('库加载失败'));
+                    return;
+                }}
+                loadScript(cdnList[attempt], function(err) {{
+                    if (!err && window.MidiPlayer) {{
+                        libLoaded = true;
+                        callback();
+                    }} else {{
+                        attempt++;
+                        tryNext();
+                    }}
+                }});
+            }}
+            tryNext();
+        }}
+
+        window.play_{player_id} = function() {{
             if (isPlaying_{player_id}) {{
                 document.getElementById('debug_{player_id}').innerText = '已经在播放中';
                 return;
             }}
-            document.getElementById('status_{player_id}').innerText = '⏳ 加载中...';
-            document.getElementById('debug_{player_id}').innerText = '开始解码Base64';
-            try {{
-                var binary = atob("{midi_base64}");
-                var array = new Uint8Array(binary.length);
-                for (var i = 0; i < binary.length; i++) {{
-                    array[i] = binary.charCodeAt(i);
+            ensureLib(function(err) {{
+                if (err) {{
+                    document.getElementById('status_{player_id}').innerText = '❌ 播放器不可用';
+                    return;
                 }}
-                var blob = new Blob([array], {{ type: 'audio/midi' }});
-                var url = URL.createObjectURL(blob);
-                document.getElementById('debug_{player_id}').innerText = '创建Blob URL: ' + url;
-
-                player_{player_id} = new MidiPlayer.Player(function(event) {{
-                    // 监听事件
-                    if (event.message === 0x3F) {{ // End of track
-                        document.getElementById('status_{player_id}').innerText = '✅ 播放结束';
-                        isPlaying_{player_id} = false;
+                document.getElementById('status_{player_id}').innerText = '⏳ 解码中...';
+                try {{
+                    var binary = atob("{midi_base64}");
+                    var array = new Uint8Array(binary.length);
+                    for (var i = 0; i < binary.length; i++) {{
+                        array[i] = binary.charCodeAt(i);
                     }}
-                }});
+                    var blob = new Blob([array], {{ type: 'audio/midi' }});
+                    var url = URL.createObjectURL(blob);
 
-                player_{player_id}.loadFile(url, function() {{
-                    document.getElementById('status_{player_id}').innerText = '▶️ 播放中...';
-                    document.getElementById('debug_{player_id}').innerText = '开始播放';
-                    isPlaying_{player_id} = true;
-                    player_{player_id}.play();
-                }});
-            }} catch (e) {{
-                document.getElementById('status_{player_id}').innerText = '❌ 播放失败';
-                document.getElementById('debug_{player_id}').innerText = '错误: ' + e.message;
-                console.error(e);
-            }}
-        }}
+                    player_{player_id} = new MidiPlayer.Player(function(event) {{
+                        if (event.message === 0x3F) {{ // End of track
+                            document.getElementById('status_{player_id}').innerText = '✅ 播放结束';
+                            isPlaying_{player_id} = false;
+                        }}
+                    }});
 
-        function stop_{player_id}() {{
+                    player_{player_id}.loadFile(url, function() {{
+                        document.getElementById('status_{player_id}').innerText = '▶️ 播放中...';
+                        document.getElementById('debug_{player_id}').innerText = '';
+                        isPlaying_{player_id} = true;
+                        player_{player_id}.play();
+                    }});
+                }} catch (e) {{
+                    document.getElementById('status_{player_id}').innerText = '❌ 播放失败';
+                    document.getElementById('debug_{player_id}').innerText = '错误: ' + e.message;
+                    console.error(e);
+                }}
+            }});
+        }};
+
+        window.stop_{player_id} = function() {{
             if (player_{player_id} && isPlaying_{player_id}) {{
                 player_{player_id}.stop();
                 document.getElementById('status_{player_id}').innerText = '⏹️ 已停止';
                 isPlaying_{player_id} = false;
-                document.getElementById('debug_{player_id}').innerText = '手动停止';
+                document.getElementById('debug_{player_id}').innerText = '';
             }}
-        }}
+        }};
+    }})();
     </script>
     """
     return html
 
-# 侧边栏：上传MIDI
+# 侧边栏
 with st.sidebar:
     st.header("1. 导入MIDI文件")
     uploaded_files = st.file_uploader("选择MIDI文件", type=['mid','midi'], accept_multiple_files=True)
@@ -190,7 +240,7 @@ with st.sidebar:
             st.session_state.labels_beauty = [None] * len(st.session_state.variants)
             st.success(f"已生成 {len(st.session_state.variants)} 个变体")
 
-# 主界面：标注（默认展开所有变体）
+# 主界面：标注（默认展开）
 st.header("3. 标注变体")
 if st.session_state.variants:
     for idx, var in enumerate(st.session_state.variants[:10]):  # 只显示前10个
@@ -199,9 +249,9 @@ if st.session_state.variants:
             with col1:
                 midi_bytes = get_midi_bytes(var)
                 midi_b64 = midi_to_base64(midi_bytes)
-                # 嵌入播放器HTML
+                # 嵌入播放器
                 player_html = get_midi_player_html(midi_b64, idx)
-                st.components.v1.html(player_html, height=120)
+                st.components.v1.html(player_html, height=140)
                 # 下载按钮
                 st.download_button(
                     "⬇️ 下载MIDI文件",
