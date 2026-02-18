@@ -271,3 +271,4 @@ if st.session_state.variants:
                 new_b = st.slider("好听度评分", 0.0, 1.0, current_b, key=f"b_{idx}")
 else:
     st.info("请在左侧上传MIDI文件并生成变体")
+    
