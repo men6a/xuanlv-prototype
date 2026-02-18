@@ -5,12 +5,11 @@ import tempfile
 import random
 import copy
 import base64
-import time
 from music21 import converter, note, stream, midi
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
 
-# 自定义标题样式
+# 自定义标题样式（保持与普通文本一致）
 st.markdown("""
 <style>
 .main-title {
@@ -178,26 +177,7 @@ with st.sidebar:
             st.success(f"已生成 {len(new_variants)} 个变体")
 
 # 主界面：标注（默认展开）
-st.header("3. 标注变体")
-
-# 全局保存按钮
-col_global_left, col_global_right = st.columns([3, 1])
-with col_global_right:
-    if st.button("💾 保存所有变体", type="primary"):
-        for idx in range(len(st.session_state.variants[:10])):
-            current_s = st.session_state.get(f"s_{idx}", 0.5)
-            current_b = st.session_state.get(f"b_{idx}", 0.5)
-            current_f = st.session_state.get(f"f_{idx}", "")
-            while len(st.session_state.labels_surprise) <= idx:
-                st.session_state.labels_surprise.append(None)
-            while len(st.session_state.labels_beauty) <= idx:
-                st.session_state.labels_beauty.append(None)
-            while len(st.session_state.labels_feelings) <= idx:
-                st.session_state.labels_feelings.append("")
-            st.session_state.labels_surprise[idx] = current_s
-            st.session_state.labels_beauty[idx] = current_b
-            st.session_state.labels_feelings[idx] = current_f
-        st.success("所有变体已保存")
+st.markdown("请标注变体和感受")
 
 if st.session_state.variants:
     for idx, var in enumerate(st.session_state.variants[:10]):  # 只显示前10个
@@ -226,7 +206,7 @@ if st.session_state.variants:
                     label_visibility="collapsed"
                 )
                 
-                # 并排按钮：下载 和 保存本变体
+                # 并排按钮：下载 和 保存标注
                 btn_col1, btn_col2 = st.columns(2)
                 with btn_col1:
                     st.download_button(
@@ -241,7 +221,7 @@ if st.session_state.variants:
                     current_s = st.session_state.get(f"s_{idx}", 0.5)
                     current_b = st.session_state.get(f"b_{idx}", 0.5)
                     current_f = st.session_state.get(f"f_{idx}", "")
-                    if st.button("💾 保存本变体", key=f"save_{idx}"):
+                    if st.button("💾 保存标注", key=f"save_{idx}"):
                         while len(st.session_state.labels_surprise) <= idx:
                             st.session_state.labels_surprise.append(None)
                         while len(st.session_state.labels_beauty) <= idx:
@@ -254,7 +234,6 @@ if st.session_state.variants:
                         st.success(f"变体 #{idx} 已保存")
             
             with right_col:
-                st.markdown("#### 标注")
                 # 显示当前保存的值（如果有）
                 if idx < len(st.session_state.labels_surprise):
                     current_s = st.session_state.labels_surprise[idx] if st.session_state.labels_surprise[idx] is not None else 0.5
@@ -265,7 +244,7 @@ if st.session_state.variants:
                 else:
                     current_b = 0.5
                 
-                # 滑块
+                # 滑块（静默操作，无额外闪烁）
                 new_s = st.slider("意外度", 0.0, 1.0, current_s, key=f"s_{idx}")
                 new_b = st.slider("好听度", 0.0, 1.0, current_b, key=f"b_{idx}")
                 # 右侧不再有保存按钮
