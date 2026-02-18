@@ -192,25 +192,40 @@ if st.session_state.variants:
             with left_col:
                 midi_bytes = get_midi_bytes(var)
                 
-                # 播放器（高度略增确保完整显示）
+                # 播放器
                 player_html = get_midi_player_html(midi_bytes, idx)
                 st.components.v1.html(player_html, height=60)
                 
-                # 标题行：左侧为“请标注变体听感”，右侧为保存按钮（靠右，不换行）
-                title_col1, title_col2 = st.columns([2.5, 1.5])
-                with title_col1:
-                    st.markdown("**请标注变体听感**")
-                with title_col2:
-                    # 强制按钮不换行
-                    st.markdown("""
-                    <style>
-                    div[data-testid="column"]:nth-of-type(2) .stButton button {
-                        white-space: nowrap;
-                        width: auto;
-                        min-width: 110px;
-                    }
-                    </style>
-                    """, unsafe_allow_html=True)
+                # 标题：请标注变体听感（不再包含按钮）
+                st.markdown("**请标注变体听感**")
+                
+                # 感受词输入框
+                if idx < len(st.session_state.labels_feelings):
+                    current_f = st.session_state.labels_feelings[idx] if st.session_state.labels_feelings[idx] is not None else ""
+                else:
+                    current_f = ""
+                
+                st.text_area(
+                    "感受词（可输入多个词，逗号分隔）",
+                    value=current_f,
+                    height=80,
+                    placeholder="例如：跳跃、不协和、温柔...",
+                    key=f"f_{idx}",
+                    label_visibility="collapsed"
+                )
+                
+                # 按钮行：下载靠左，保存靠右
+                btn_col1, btn_col2 = st.columns(2)
+                with btn_col1:
+                    st.download_button(
+                        "⬇️ 下载MIDI文件",
+                        data=get_midi_bytes(var),
+                        file_name=f"variant_{idx}.mid",
+                        mime="audio/midi",
+                        key=f"download_{idx}"
+                    )
+                with btn_col2:
+                    # 保存按钮靠右（通过列布局自然右对齐）
                     if st.button("💾 保存标注", key=f"save_left_{idx}"):
                         # 获取当前值
                         current_s = st.session_state.get(f"s_{idx}", 0.5)
@@ -230,22 +245,7 @@ if st.session_state.variants:
                         st.session_state.labels_beauty[idx] = current_b
                         st.session_state.labels_feelings[idx] = current_f
                         st.session_state.save_indicator[idx] = "✅"
-                        st.rerun()  # 立即刷新以更新标题
-                
-                # 感受词输入框
-                if idx < len(st.session_state.labels_feelings):
-                    current_f = st.session_state.labels_feelings[idx] if st.session_state.labels_feelings[idx] is not None else ""
-                else:
-                    current_f = ""
-                
-                st.text_area(
-                    "感受词（可输入多个词，逗号分隔）",
-                    value=current_f,
-                    height=80,
-                    placeholder="例如：跳跃、不协和、温柔...",
-                    key=f"f_{idx}",
-                    label_visibility="collapsed"
-                )
+                        st.rerun()
             
             with right_col:
                 # 显示当前保存的值（如果有）
@@ -258,17 +258,8 @@ if st.session_state.variants:
                 else:
                     current_b = 0.5
                 
-                # 滑块
-                new_s = st.slider("意外度", 0.0, 1.0, current_s, key=f"s_{idx}")
-                new_b = st.slider("好听度", 0.0, 1.0, current_b, key=f"b_{idx}")
-                
-                # 右侧列下方只保留下载按钮（保存提示已移至标题）
-                st.download_button(
-                    "⬇️ 下载MIDI文件",
-                    data=get_midi_bytes(var),
-                    file_name=f"variant_{idx}.mid",
-                    mime="audio/midi",
-                    key=f"download_{idx}"
-                )
+                # 滑块，标签已修改
+                new_s = st.slider("意外度评分", 0.0, 1.0, current_s, key=f"s_{idx}")
+                new_b = st.slider("好听度评分", 0.0, 1.0, current_b, key=f"b_{idx}")
 else:
     st.info("请在左侧上传MIDI文件并生成变体")
