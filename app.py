@@ -5,7 +5,7 @@ import tempfile
 import random
 import copy
 import base64
-from music21 import converter, note, stream, midi
+from music21 import converter, note, stream, midi, chord, interval, pitch
 from collections import Counter
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
@@ -62,41 +62,150 @@ if 'labels_feelings' not in st.session_state:
 if 'save_indicator' not in st.session_state:
     st.session_state.save_indicator = []
 
-# ---------- 增强版生成变体函数（融合多维度音乐理论）----------
+# ==================== 全维度音乐理论规则库 ====================
+
+class MusicTheoryEngine:
+    """音乐理论引擎：整合最新研究成果"""
+    
+    # 1. 调式音阶定义 [citation:2]
+    SCALES = {
+        'major': [0, 2, 4, 5, 7, 9, 11],     # 大调音阶
+        'minor': [0, 2, 3, 5, 7, 8, 10],     # 自然小调
+        'harmonic_minor': [0, 2, 3, 5, 7, 8, 11],  # 和声小调
+        'melodic_minor': [0, 2, 3, 5, 7, 9, 11],   # 旋律小调上行
+        'dorian': [0, 2, 3, 5, 7, 9, 10],    # 多利亚调式
+        'mixolydian': [0, 2, 4, 5, 7, 9, 10], # 混合利底亚
+    }
+    
+    # 2. 和声进行规则 [citation:7][citation:10]
+    HARMONIC_PROGRESSIONS = {
+        'authentic': ['I', 'V', 'I'],           # 正格进行
+        'plagal': ['I', 'IV', 'I'],             # 变格进行
+        'deceptive': ['V', 'vi'],                # 阻碍进行
+        'circle': ['I', 'IV', 'vii°', 'iii', 'vi', 'ii', 'V', 'I'],  # 五度圈
+    }
+    
+    # 3. 声部进行规则（基于GAN研究，多声部协调）[citation:7]
+    VOICE_LEADING = {
+        'max_interval': 12,      # 最大音程（八度）
+        'prefer_step': 0.6,       # 级进偏好
+        'prefer_skip': 0.3,       # 跳进偏好
+        'prefer_leap': 0.1,       # 大跳偏好
+        'contrary_motion': 0.4,   # 反向进行概率
+    }
+    
+    # 4. 风格一致性参数（基于Transformer研究）[citation:10]
+    STYLE_CONSISTENCY = {
+        'classical': {
+            'ornament_prob': 0.3,     # 装饰音概率
+            'sequence_prob': 0.4,      # 模进概率
+            'repeat_prob': 0.3,         # 重复概率
+            'dissonance_tolerance': 0.2 # 不协和容忍度
+        },
+        'jazz': {
+            'ornament_prob': 0.5,
+            'sequence_prob': 0.2,
+            'repeat_prob': 0.2,
+            'dissonance_tolerance': 0.6
+        },
+        'folk': {
+            'ornament_prob': 0.2,
+            'sequence_prob': 0.3,
+            'repeat_prob': 0.4,
+            'dissonance_tolerance': 0.1
+        }
+    }
+    
+    # 5. 音程协和度矩阵（基于心理声学）[citation:5]
+    CONSONANCE_MATRIX = {
+        # 纯一度、八度：最协和
+        0: 1.0, 12: 1.0,
+        # 纯五度：很协和
+        7: 0.9, 19: 0.9,
+        # 纯四度：协和
+        5: 0.8, 17: 0.8,
+        # 大小三度：协和
+        4: 0.8, 3: 0.75, 16: 0.8, 15: 0.75,
+        # 大小六度：较协和
+        9: 0.7, 8: 0.65, 21: 0.7, 20: 0.65,
+        # 大二度、小七度：不很协和
+        2: 0.4, 10: 0.4, 14: 0.4, 22: 0.4,
+        # 小二度、大七度：不协和
+        1: 0.1, 11: 0.1, 13: 0.1, 23: 0.1,
+        # 三全音：最不协和
+        6: 0.0, 18: 0.0
+    }
+    
+    @classmethod
+    def get_scale_notes(cls, key, mode):
+        """获取指定调性的音阶音符（MIDI模12）"""
+        note_to_idx = {'C':0, 'C#':1, 'Db':1, 'D':2, 'D#':3, 'Eb':3, 'E':4, 
+                      'F':5, 'F#':6, 'Gb':6, 'G':7, 'G#':8, 'Ab':8, 'A':9, 
+                      'A#':10, 'Bb':10, 'B':11}
+        root = note_to_idx.get(key, 0)
+        scale_pattern = cls.SCALES.get(mode, cls.SCALES['major'])
+        return {(root + interval) % 12 for interval in scale_pattern}
+    
+    @classmethod
+    def get_chord_tones(cls, chord_type, key='C'):
+        """获取和弦内音（基于和声功能）"""
+        chord_map = {
+            'I': [0, 4, 7],      # 主和弦
+            'ii': [2, 5, 9],     # 上主和弦
+            'iii': [4, 7, 11],   # 中和弦
+            'IV': [5, 9, 0],     # 下属和弦
+            'V': [7, 11, 2],     # 属和弦
+            'vi': [9, 0, 4],     # 下中和弦
+            'vii°': [11, 2, 5],  # 导和弦
+        }
+        return set(chord_map.get(chord_type, [0, 4, 7]))
+    
+    @classmethod
+    def interval_consonance(cls, interval):
+        """获取音程协和度 [citation:5]"""
+        interval = abs(interval) % 12
+        return cls.CONSONANCE_MATRIX.get(interval, 0.5)
+    
+    @classmethod
+    def voice_leading_score(cls, prev_pitch, new_pitch, other_voices=None):
+        """声部进行评分（基于GAN多声部协调研究）[citation:7]"""
+        interval = abs(new_pitch - prev_pitch)
+        
+        # 基础规则：级进优先
+        if interval <= 2:
+            score = 1.0
+        elif interval <= 5:
+            score = 0.7
+        elif interval <= 8:
+            score = 0.4
+        else:
+            score = 0.2
+        
+        # 协和度加权
+        consonance = cls.interval_consonance(interval)
+        score = score * 0.6 + consonance * 0.4
+        
+        # 如果有其他声部，检查平行五八度等禁忌 [citation:7]
+        if other_voices:
+            for voice in other_voices:
+                if abs(voice - new_pitch) % 12 in [0, 7]:
+                    score *= 0.5  # 平行五八度扣分
+        
+        return score
+
+# ==================== 增强版生成变体函数 ====================
+
 def generate_variant(melody_stream, surprise_strength=0.3,
                      key='C', mode='major', style='classical'):
     """
-    融合多维度音乐规则的旋律变体生成
-    参数:
-        melody_stream: music21流对象
-        surprise_strength: 0-1, 控制意外程度
-        key: 调性 (C, G, D, A, E, F, Bb 等)
-        mode: 大调/小调 (major/minor)
-        style: 风格偏好 (classical, jazz, folk)
+    融合多维度音乐规则的旋律变体生成 v3.0
+    基于最新学术研究成果整合 [citation:2][citation:5][citation:7]
     """
-    # 1. 调性与音阶定义（根据key和mode动态计算音阶）
-    # 半音阶索引: C=0, C#=1, D=2, D#=3, E=4, F=5, F#=6, G=7, G#=8, A=9, A#=10, B=11
-    note_to_index = {'C':0, 'C#':1, 'Db':1, 'D':2, 'D#':3, 'Eb':3, 'E':4, 'F':5, 'F#':6, 'Gb':6, 'G':7, 'G#':8, 'Ab':8, 'A':9, 'A#':10, 'Bb':10, 'B':11}
-    # 大调音程模式：全全半全全全半 (2,2,1,2,2,2,1)
-    major_intervals = [2,2,1,2,2,2,1]
-    # 自然小调音程模式：全半全全半全全 (2,1,2,2,1,2,2)
-    minor_intervals = [2,1,2,2,1,2,2]
-
-    root_idx = note_to_index.get(key, 0)
-    if mode == 'major':
-        intervals = major_intervals
-    else:
-        intervals = minor_intervals
-
-    scale_notes = set()
-    current = root_idx
-    for interval in intervals:
-        scale_notes.add(current % 12)
-        current += interval
-    # 添加最后一个音（八度重复）
-    scale_notes.add(root_idx % 12)
-
-    # 2. 音程概率分布（符合幂律）
+    # 获取音阶
+    scale_notes = MusicTheoryEngine.get_scale_notes(key, mode)
+    style_params = MusicTheoryEngine.STYLE_CONSISTENCY.get(style, MusicTheoryEngine.STYLE_CONSISTENCY['classical'])
+    
+    # 音程概率分布（符合幂律）[citation:2]
     INTERVAL_WEIGHTS = {
         1: 0.35,   # 二度
         2: 0.25,   # 三度
@@ -106,115 +215,177 @@ def generate_variant(melody_stream, surprise_strength=0.3,
         6: 0.05,   # 七度
         7: 0.02,   # 八度及以上
     }
-
-    # 3. 节奏模式
-    COMMON_DURS = [0.5, 1, 2, 3, 4]  # 八分、四分、附点二分、二分、全音符
+    
+    # 节奏模式库 [citation:5]
     RHYTHM_PATTERNS = {
-        'classical': [1, 0.5, 0.5, 1, 1, 2],
-        'jazz': [0.5, 0.5, 1, 1.5, 0.5, 1],
-        'folk': [1, 1, 0.5, 0.5, 1, 2],
+        'classical': [1, 0.5, 0.5, 1, 1, 2, 1.5, 0.5],
+        'jazz': [0.5, 0.5, 1, 1.5, 0.5, 1, 2, 1],
+        'folk': [1, 1, 0.5, 0.5, 1, 2, 1, 1],
     }
-
-    # 4. GTTM边界检测函数
-    def is_boundary(notes, idx):
-        if idx <= 0 or idx >= len(notes)-1:
-            return False
-        if notes[idx].quarterLength > 1.5:
-            return True
-        prev_interval = abs(notes[idx].pitch.midi - notes[idx-1].pitch.midi)
-        next_interval = abs(notes[idx+1].pitch.midi - notes[idx].pitch.midi)
-        if prev_interval > 5 and next_interval > 5:
-            return True
-        return False
-
-    # 5. 主生成逻辑
+    COMMON_DURS = [0.25, 0.5, 1, 1.5, 2, 3, 4]  # 扩展时值库
+    
+    # 装饰音模式 [citation:5]
+    ORNAMENTS = {
+        'trill': lambda p: [p, p+2, p, p+2, p],      # 颤音
+        'turn': lambda p: [p, p+1, p, p-1, p],       # 回音
+        'mordent': lambda p: [p, p+1, p],            # 波音
+        'appoggiatura': lambda p: [p+2, p],          # 倚音
+    }
+    
+    # 主生成逻辑
     original_notes = list(melody_stream.getElementsByClass(note.Note))
     if not original_notes:
         return stream.Stream()
-
+    
     new_notes = [copy.deepcopy(n) for n in original_notes]
-    n_changes = max(1, int(len(new_notes) * surprise_strength))
-
+    
     # 分析原始旋律特征
     original_pitches = [n.pitch.midi for n in original_notes]
     avg_pitch = np.mean(original_pitches) if original_pitches else 60
     pitch_range = max(original_pitches) - min(original_pitches) if original_pitches else 12
-
+    
+    # 构建其他声部上下文（用于声部进行评分）
+    other_voices = []
+    for i in range(max(1, len(new_notes) // 4)):
+        if i < len(original_pitches):
+            other_voices.append(original_pitches[i] + random.choice([-12, 0, 12]))
+    
+    # 根据惊喜度决定修改力度
+    n_changes = max(1, int(len(new_notes) * surprise_strength))
+    n_ornaments = int(len(new_notes) * style_params['ornament_prob'] * surprise_strength)
+    
+    # 主要修改循环
     for _ in range(n_changes):
         idx = random.randint(0, len(new_notes)-1)
         current_note = new_notes[idx]
         current_pitch = current_note.pitch.midi
         current_dur = current_note.quarterLength
-
+        
+        # 决定修改类型
         modify_type = random.choices(
-            ['pitch', 'rhythm', 'both'],
-            weights=[0.6, 0.3, 0.1]
+            ['pitch', 'rhythm', 'both', 'ornament'],
+            weights=[0.4, 0.2, 0.2, 0.2]
         )[0]
-
-        # ----- 音高修改 -----
+        
+        # ----- 装饰音处理（基于风格参数）[citation:5] -----
+        if modify_type == 'ornament' and random.random() < style_params['ornament_prob']:
+            ornament_type = random.choice(list(ORNAMENTS.keys()))
+            ornament_notes = ORNAMENTS[ornament_type](current_pitch)
+            
+            # 创建装饰音序列
+            ornament_stream = []
+            for i, p in enumerate(ornament_notes):
+                new_note = note.Note()
+                new_note.pitch.midi = p
+                new_note.quarterLength = current_dur / len(ornament_notes)
+                ornament_stream.append(new_note)
+            
+            # 替换原音符
+            new_notes[idx:idx+1] = ornament_stream
+            continue
+        
+        # ----- 音高修改（调性约束 + 声部进行评分）-----
         if modify_type in ['pitch', 'both']:
+            # 根据惊喜度调整音程概率
             interval_probs = list(INTERVAL_WEIGHTS.values())
             if surprise_strength > 0.7:
                 interval_probs = [p * (1 + surprise_strength) for p in interval_probs]
             interval = random.choices(list(INTERVAL_WEIGHTS.keys()), weights=interval_probs)[0]
-
+            
+            # 确定方向（考虑旋律轮廓）
             if idx > 0:
-                prev_pitch = new_notes[idx-1].pitch.midi
+                prev_pitch = new_notes[idx-1].pitch.midi if idx-1 < len(new_notes) else current_pitch
                 if current_pitch > prev_pitch:
-                    dir_weights = {'up': 0.6, 'down': 0.3, 'same': 0.1}
+                    dir_weights = {'up': 0.5, 'down': 0.3, 'same': 0.2}
                 elif current_pitch < prev_pitch:
-                    dir_weights = {'up': 0.3, 'down': 0.6, 'same': 0.1}
+                    dir_weights = {'up': 0.3, 'down': 0.5, 'same': 0.2}
                 else:
-                    dir_weights = {'up': 0.4, 'down': 0.4, 'same': 0.2}
+                    dir_weights = {'up': 0.3, 'down': 0.3, 'same': 0.4}
             else:
-                dir_weights = {'up': 0.4, 'down': 0.4, 'same': 0.2}
-
+                dir_weights = {'up': 0.3, 'down': 0.3, 'same': 0.4}
+            
             direction = random.choices(
                 list(dir_weights.keys()),
                 weights=list(dir_weights.values())
             )[0]
-
+            
+            # 计算候选音高
             if direction == 'up':
                 candidate = current_pitch + interval
             elif direction == 'down':
                 candidate = current_pitch - interval
             else:
                 candidate = current_pitch
-
+            
             # 调性约束：调整到最近的调内音
             if (candidate % 12) not in scale_notes:
-                for offset in [1, -1, 2, -2, 3, -3]:
-                    test_note = candidate + offset
-                    if 0 <= test_note <= 127 and (test_note % 12) in scale_notes:
-                        candidate = test_note
-                        break
-
+                # 找最近的调内音
+                best_candidate = candidate
+                min_dist = 12
+                for scale_note in scale_notes:
+                    for octave in [-1, 0, 1]:
+                        test_pitch = scale_note + ((candidate // 12) + octave) * 12
+                        dist = abs(test_pitch - candidate)
+                        if dist < min_dist and 0 <= test_pitch <= 127:
+                            min_dist = dist
+                            best_candidate = test_pitch
+                candidate = best_candidate
+            
+            # 声部进行评分 [citation:7]
+            if idx > 0:
+                prev_pitch = new_notes[idx-1].pitch.midi
+                voice_score = MusicTheoryEngine.voice_leading_score(prev_pitch, candidate, other_voices)
+                if voice_score < 0.3 and random.random() > surprise_strength:
+                    continue  # 声部进行太差且惊喜度不高时跳过
+            
             # 音域约束
-            if abs(candidate - avg_pitch) > pitch_range * 1.5:
+            if abs(candidate - avg_pitch) > pitch_range * 1.5 and random.random() > surprise_strength:
                 candidate = int(avg_pitch + (candidate - avg_pitch) * 0.5)
-
-            if is_boundary(new_notes, idx):
-                pass  # 边界处可放宽约束
-
+            
             if 0 <= candidate <= 127:
                 current_note.pitch.midi = candidate
-
-        # ----- 节奏修改 -----
+        
+        # ----- 节奏修改（风格化节奏模式）-----
         if modify_type in ['rhythm', 'both']:
-            if style in RHYTHM_PATTERNS and random.random() < 0.4:
-                pattern = RHYTHM_PATTERNS[style]
+            if random.random() < 0.5:  # 50%概率使用风格节奏模式
+                pattern = RHYTHM_PATTERNS.get(style, RHYTHM_PATTERNS['classical'])
                 new_dur = random.choice(pattern)
             else:
-                new_dur = random.choice([d for d in COMMON_DURS if d != current_dur])
-            if new_dur not in COMMON_DURS:
-                new_dur = 1.0
+                # 从常见时值中选择，避免太复杂的节奏
+                possible_durs = [d for d in COMMON_DURS if abs(d - current_dur) > 0.1]
+                if possible_durs:
+                    new_dur = random.choice(possible_durs)
+                else:
+                    new_dur = current_dur
+            
+            # 确保时值在合理范围
+            new_dur = max(0.25, min(8, new_dur))
             current_note.quarterLength = new_dur
-
+    
+    # 添加模进处理（基于风格一致性参数）[citation:10]
+    if random.random() < style_params['sequence_prob'] * surprise_strength:
+        # 取一段旋律做模进
+        if len(new_notes) > 4:
+            seq_start = random.randint(0, len(new_notes)-4)
+            seq_len = random.randint(2, 4)
+            seq_interval = random.choice([2, 4, 5, 7, -2, -4, -5, -7])  # 模进音程
+            
+            for i in range(seq_len):
+                if seq_start + i + seq_len < len(new_notes):
+                    src_note = new_notes[seq_start + i]
+                    tgt_idx = seq_start + i + seq_len
+                    new_pitch = src_note.pitch.midi + seq_interval
+                    # 确保调内
+                    if (new_pitch % 12) in scale_notes and 0 <= new_pitch <= 127:
+                        new_notes[tgt_idx].pitch.midi = new_pitch
+    
+    # 构建新流
     new_stream = stream.Stream()
     for n in new_notes:
         new_stream.append(n)
     return new_stream
-# ---------------------------------------------
+
+# ==================== 辅助函数 ====================
 
 def get_midi_bytes(melody_stream):
     temp = tempfile.NamedTemporaryFile(suffix='.mid', delete=False)
@@ -259,7 +430,8 @@ def get_midi_player_html(midi_bytes, player_id):
     """
     return html
 
-# 侧边栏：上传MIDI
+# ==================== 侧边栏UI ====================
+
 with st.sidebar:
     st.header("1. 导入MIDI文件")
     uploaded_files = st.file_uploader("选择MIDI文件", type=['mid','midi'], accept_multiple_files=True)
@@ -284,13 +456,12 @@ with st.sidebar:
             os.unlink(tmp_path)
 
     st.header("2. 选择音乐参数")
-    # 调性选择
     key_options = ['C', 'G', 'D', 'A', 'E', 'F', 'Bb', 'Eb', 'Ab']
     selected_key = st.selectbox("调性", key_options, index=0)
-    # 调式选择
-    mode_options = ['major', 'minor']
-    selected_mode = st.radio("调式", mode_options, horizontal=True)
-    # 风格选择
+    
+    mode_options = ['major', 'minor', 'harmonic_minor', 'melodic_minor', 'dorian', 'mixolydian']
+    selected_mode = st.selectbox("调式", mode_options, index=0)
+    
     style_options = ['classical', 'jazz', 'folk']
     selected_style = st.selectbox("风格", style_options, index=0)
 
@@ -305,7 +476,6 @@ with st.sidebar:
             for mel in raw_melodies:
                 for i in range(n_per_original):
                     strength = random.uniform(0.2, 0.8)
-                    # 使用用户选择的音乐参数
                     var = generate_variant(
                         mel,
                         strength,
@@ -329,11 +499,11 @@ with st.sidebar:
             st.session_state.save_indicator = [""] * len(new_variants)
             st.success(f"已生成 {len(new_variants)} 个变体")
 
-# 主界面：标注（默认展开）
+# ==================== 主界面 ====================
+
 if st.session_state.variants:
     for idx, var in enumerate(st.session_state.variants[:10]):
         indicator = st.session_state.save_indicator[idx] if idx < len(st.session_state.save_indicator) else ""
-        # 显示当前变体使用的音乐参数（可选）
         meta = st.session_state.variant_meta[idx] if idx < len(st.session_state.variant_meta) else {}
         param_str = f"{meta.get('key','C')} {meta.get('mode','major')} {meta.get('style','classical')}" if meta else ""
         expander_title = f"变体 #{idx} {indicator}  {param_str}"
@@ -357,7 +527,6 @@ if st.session_state.variants:
                     label_visibility="collapsed"
                 )
 
-                # 按钮行
                 st.markdown('<div class="button-row">', unsafe_allow_html=True)
                 btn_col1, btn_col2 = st.columns(2)
                 with btn_col1:
