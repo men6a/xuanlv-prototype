@@ -8,7 +8,7 @@ import base64
 from music21 import converter, note, stream, midi
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
-st.title("🎵 玄·律标注原型 (紧凑播放条版)")
+st.title("🎵 玄·律标注原型 (无缝背景版)")
 st.markdown("上传MIDI文件，生成变体，直接点击播放器试听（内置音源）。")
 
 # 初始化session_state
@@ -82,14 +82,14 @@ def get_midi_bytes(melody_stream):
 
 def get_midi_player_html(midi_bytes, player_id):
     """
-    返回一个仅包含播放条的 HTML 片段，背景色奶绿色，无钢琴卷帘。
+    返回一个仅包含播放条的 HTML 片段，无背景无间距（由父容器控制）。
     """
     import base64
     midi_base64 = base64.b64encode(midi_bytes).decode('utf-8')
     data_url = f"data:audio/midi;base64,{midi_base64}"
 
     html = f"""
-    <div style="background-color: #e6f3da; padding: 8px 12px; border-radius: 8px; margin: 4px 0;">
+    <div style="margin: 0; padding: 0; background: transparent;">
         <script src="https://cdn.jsdelivr.net/combine/npm/tone@14.7.58,npm/@magenta/music@1.23.1/es6/core.js,npm/focus-visible@5,npm/html-midi-player@1.5.0"></script>
         <midi-player
             id="player-{player_id}"
@@ -159,40 +159,50 @@ if st.session_state.variants:
             
             with left_col:
                 midi_bytes = get_midi_bytes(var)
-                player_html = get_midi_player_html(midi_bytes, idx)
-                # 高度调整为仅播放条（约80-100px）
-                st.components.v1.html(player_html, height=100)
                 
-                # 感受词输入框（奶绿色背景）
+                # 统一的奶绿色背景容器样式
+                st.markdown(
+                    """
+                    <style>
+                    .mint-container {
+                        background-color: #e6f3da;
+                        padding: 12px;
+                        border-radius: 8px;
+                        margin-bottom: 8px;
+                    }
+                    .mint-container .stTextArea textarea {
+                        background-color: #f8fff0;
+                    }
+                    </style>
+                    """,
+                    unsafe_allow_html=True
+                )
+                
+                # 用div包裹播放器和感受词，实现无缝背景
+                st.markdown('<div class="mint-container">', unsafe_allow_html=True)
+                
+                # 播放器
+                player_html = get_midi_player_html(midi_bytes, idx)
+                st.components.v1.html(player_html, height=80)
+                
+                # 感受词输入框
                 if idx < len(st.session_state.labels_feelings):
                     current_f = st.session_state.labels_feelings[idx] if st.session_state.labels_feelings[idx] is not None else ""
                 else:
                     current_f = ""
                 
-                with st.container():
-                    st.markdown(
-                        """
-                        <style>
-                        .feelings-box {
-                            background-color: #e6f3da;
-                            padding: 10px;
-                            border-radius: 8px;
-                            margin-top: 8px;
-                        }
-                        </style>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                    st.markdown('<div class="feelings-box">', unsafe_allow_html=True)
-                    new_f = st.text_area(
-                        "感受词（可输入多个词，逗号分隔）",
-                        value=current_f,
-                        height=100,
-                        placeholder="例如：跳跃、不协和、温柔...",
-                        key=f"f_{idx}"
-                    )
-                    st.markdown('</div>', unsafe_allow_html=True)
+                new_f = st.text_area(
+                    "感受词（可输入多个词，逗号分隔）",
+                    value=current_f,
+                    height=80,
+                    placeholder="例如：跳跃、不协和、温柔...",
+                    key=f"f_{idx}",
+                    label_visibility="collapsed"
+                )
                 
+                st.markdown('</div>', unsafe_allow_html=True)
+                
+                # 下载按钮放在容器外
                 st.download_button(
                     "⬇️ 下载MIDI文件",
                     data=midi_bytes,
