@@ -195,7 +195,7 @@ if st.session_state.variants:
                 player_html = get_midi_player_html(midi_bytes, idx)
                 st.components.v1.html(player_html, height=60)
                 
-                # 感受词输入框（标题融入placeholder）
+                # 感受词输入框（标题已融入placeholder）
                 if idx < len(st.session_state.labels_feelings):
                     current_f = st.session_state.labels_feelings[idx] if st.session_state.labels_feelings[idx] is not None else ""
                 else:
@@ -210,9 +210,28 @@ if st.session_state.variants:
                     label_visibility="collapsed"
                 )
                 
-                # 按钮行：下载靠左，保存靠右并与输入框右边缘对齐
-                # 使用等宽两列，并在第二列添加CSS使按钮右对齐
-                btn_col1, btn_col2 = st.columns([1, 1])
+                # 按钮行：两列等宽，通过CSS实现左对齐和右对齐
+                st.markdown(
+                    """
+                    <style>
+                    /* 左列按钮左对齐 */
+                    div[data-testid="column"]:nth-child(1) .stButton button {
+                        float: left;
+                    }
+                    /* 右列按钮右对齐且不换行 */
+                    div[data-testid="column"]:nth-child(2) .stButton {
+                        text-align: right;
+                    }
+                    div[data-testid="column"]:nth-child(2) .stButton button {
+                        white-space: nowrap;
+                        width: auto;
+                        display: inline-block;
+                    }
+                    </style>
+                    """,
+                    unsafe_allow_html=True
+                )
+                btn_col1, btn_col2 = st.columns(2)
                 with btn_col1:
                     st.download_button(
                         "⬇️ 下载MIDI文件",
@@ -222,21 +241,6 @@ if st.session_state.variants:
                         key=f"download_{idx}"
                     )
                 with btn_col2:
-                    # 添加CSS使该列按钮靠右
-                    st.markdown(
-                        """
-                        <style>
-                        div[data-testid="column"]:nth-child(2) .stButton {
-                            display: flex;
-                            justify-content: flex-end;
-                        }
-                        div[data-testid="column"]:nth-child(2) .stButton button {
-                            margin-left: auto;
-                        }
-                        </style>
-                        """,
-                        unsafe_allow_html=True
-                    )
                     if st.button("💾 保存标注", key=f"save_left_{idx}"):
                         current_s = st.session_state.get(f"s_{idx}", 0.5)
                         current_b = st.session_state.get(f"b_{idx}", 0.5)
