@@ -4,11 +4,12 @@ import numpy as np
 import tempfile
 import random
 import copy
+import base64
 from music21 import converter, note, stream, midi
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
-st.title("🎵 玄·律标注原型 (带播放按钮版)")
-st.markdown("上传MIDI文件，生成变体，标注意外度和好听度。")
+st.title("🎵 玄·律标注原型 (网页直接播放版)")
+st.markdown("上传MIDI文件，生成变体，直接点击播放试听，并标注。")
 
 # 初始化session_state
 if 'variants' not in st.session_state:
@@ -19,28 +20,23 @@ if 'labels_surprise' not in st.session_state:
     st.session_state.labels_surprise = []
 if 'labels_beauty' not in st.session_state:
     st.session_state.labels_beauty = []
+if 'current_midi_base64' not in st.session_state:
+    st.session_state.current_midi_base64 = None
 
-# ---------- 增强版 generate_variant ----------
+# ---------- 生成变体函数（增强音乐性）----------
 def generate_variant(melody_stream, surprise_strength=0.3):
-    """
-    生成旋律变体（增强音乐性）
-    """
     C_MAJOR = {0, 2, 4, 5, 7, 9, 11}
     COMMON_DURS = [0.5, 1, 2]
-
     original_notes = list(melody_stream.getElementsByClass(note.Note))
     if not original_notes:
         return stream.Stream()
-
     new_notes = [copy.deepcopy(n) for n in original_notes]
-
     n_changes = max(1, int(len(new_notes) * surprise_strength))
     for _ in range(n_changes):
         idx = random.randint(0, len(new_notes)-1)
         current = new_notes[idx]
         current_pitch = current.pitch.midi
         current_dur = current.quarterLength
-
         if random.random() < 0.7:  # 改音高
             attempts = 0
             new_pitch = None
@@ -60,20 +56,19 @@ def generate_variant(melody_stream, surprise_strength=0.3):
             if current_dur in COMMON_DURS:
                 new_dur = random.choice([d for d in COMMON_DURS if d != current_dur])
                 current.quarterLength = new_dur
-
         if surprise_strength > 0.8 and random.random() < 0.3:
             leap = random.choice([-7, 7])
             candidate = current_pitch + leap
             if (candidate % 12) in C_MAJOR and 0 <= candidate <= 127:
                 current.pitch.midi = candidate
-
     new_stream = stream.Stream()
     for n in new_notes:
         new_stream.append(n)
     return new_stream
-# --------------------------------------------
+# ---------------------------------------------
 
-def get_midi_data(melody_stream):
+def get_midi_bytes(melody_stream):
+    """将music21流转换为MIDI文件字节数据"""
     temp = tempfile.NamedTemporaryFile(suffix='.mid', delete=False)
     mf = midi.translate.music21ObjectToMidiFile(melody_stream)
     mf.open(temp.name, 'wb')
@@ -84,6 +79,44 @@ def get_midi_data(melody_stream):
     import os
     os.unlink(temp.name)
     return data
+
+def midi_to_base64(midi_bytes):
+    """将MIDI字节转换为Base64字符串，用于嵌入HTML"""
+    return base64.b64encode(midi_bytes).decode('utf-8')
+
+def get_midi_player_html(midi_base64):
+    """返回一个嵌入MidiPlayerJS的HTML字符串，用于播放Base64编码的MIDI"""
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script src="https://cdn.jsdelivr.net/npm/midijs@2.0.0/dist/MidiPlayer.min.js"></script>
+    </head>
+    <body>
+        <div id="player"></div>
+        <button onclick="playMidi()">▶️ 在页面中播放</button>
+        <script>
+            function playMidi() {{
+                // 将Base64解码为二进制
+                var binary = atob("{midi_base64}");
+                var array = new Uint8Array(binary.length);
+                for (var i = 0; i < binary.length; i++) {{
+                    array[i] = binary.charCodeAt(i);
+                }}
+                // 创建Blob并生成URL
+                var blob = new Blob([array], {{ type: 'audio/midi' }});
+                var url = URL.createObjectURL(blob);
+                // 使用MidiPlayer播放
+                var player = new MidiPlayer.Player(function(event) {{}});
+                player.loadFile(url, function() {{
+                    player.play();
+                }});
+            }}
+        </script>
+    </body>
+    </html>
+    """
+    return html
 
 # 侧边栏：上传MIDI
 with st.sidebar:
@@ -133,14 +166,20 @@ with st.sidebar:
 
 # 主界面：标注
 st.header("3. 标注变体")
+
+# 创建一个占位符用于动态显示MIDI播放器
+player_placeholder = st.empty()
+
 if st.session_state.variants:
     for idx, var in enumerate(st.session_state.variants[:10]):  # 只显示前10个
         with st.expander(f"变体 #{idx}"):
             col1, col2 = st.columns([1,2])
             with col1:
-                midi_bytes = get_midi_data(var)
-                if st.button(f"▶️ 播放变体 #{idx}", key=f"play_{idx}"):
-                    st.audio(midi_bytes, format="audio/midi", autoplay=True)
+                midi_bytes = get_midi_bytes(var)
+                midi_b64 = midi_to_base64(midi_bytes)
+                if st.button(f"▶️ 网页播放变体 #{idx}", key=f"play_{idx}"):
+                    st.session_state.current_midi_base64 = midi_b64
+                    st.rerun()  # 重新运行以显示播放器
                 st.download_button(
                     "⬇️ 下载MIDI文件",
                     data=midi_bytes,
@@ -148,7 +187,6 @@ if st.session_state.variants:
                     mime="audio/midi",
                     key=f"download_{idx}"
                 )
-                st.caption("注：如果听不到声音，请点击页面空白处后再试 ")
             with col2:
                 current_s = st.session_state.labels_surprise[idx] if st.session_state.labels_surprise[idx] is not None else 0.5
                 current_b = st.session_state.labels_beauty[idx] if st.session_state.labels_beauty[idx] is not None else 0.5
@@ -158,5 +196,14 @@ if st.session_state.variants:
                     st.session_state.labels_surprise[idx] = new_s
                     st.session_state.labels_beauty[idx] = new_b
                     st.success("已保存")
+
+    # 如果当前有要播放的MIDI，在占位符中显示播放器
+    if st.session_state.current_midi_base64:
+        player_placeholder.markdown("### 🎧 当前播放")
+        player_html = get_midi_player_html(st.session_state.current_midi_base64)
+        st.components.v1.html(player_html, height=100)
+        if st.button("关闭播放器"):
+            st.session_state.current_midi_base64 = None
+            st.rerun()
 else:
     st.info("请在左侧上传MIDI文件并生成变体")
