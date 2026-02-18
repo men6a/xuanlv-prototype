@@ -23,13 +23,13 @@ html, body, [class*="css"]  {
 .stSlider label {
     font-size: 0.9rem !important;
 }
-/* 按钮字体更小，并向上移动靠近感受框 */
+/* 按钮字体与滑块标签一致，并向上移动靠近感受框 */
 .button-row {
     margin-top: -10px;  /* 上移按钮行 */
 }
 .button-row .stButton button, .button-row .stDownloadButton button {
-    font-size: 0.75rem !important;  /* 缩小两号 */
-    padding: 0.2rem 0.5rem;         /* 减小内边距 */
+    font-size: 0.9rem !important;  /* 与滑块标签相同 */
+    padding: 0.2rem 0.5rem;         /* 保持小内边距 */
 }
 </style>
 """, unsafe_allow_html=True)
