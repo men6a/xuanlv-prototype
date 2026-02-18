@@ -95,8 +95,7 @@ def get_midi_bytes(melody_stream):
 
 def get_midi_player_html(midi_bytes, player_id):
     """
-    返回一个仅包含播放条的 HTML 片段，背景透明（无背景色），
-    按钮和进度条使用深绿色，无任何边框、阴影或多余线条。
+    返回一个仅包含播放条的 HTML 片段，背景透明，按钮和进度条使用深绿色。
     """
     import base64
     midi_base64 = base64.b64encode(midi_bytes).decode('utf-8')
@@ -208,11 +207,11 @@ if st.session_state.variants:
             with left_col:
                 midi_bytes = get_midi_bytes(var)
                 
-                # 播放器直接嵌入，无背景容器
+                # 播放器
                 player_html = get_midi_player_html(midi_bytes, idx)
                 st.components.v1.html(player_html, height=50)
                 
-                # 感受词输入框（添加轻微背景区分）
+                # 感受词输入框
                 if idx < len(st.session_state.labels_feelings):
                     current_f = st.session_state.labels_feelings[idx] if st.session_state.labels_feelings[idx] is not None else ""
                 else:
@@ -227,16 +226,36 @@ if st.session_state.variants:
                     label_visibility="collapsed"
                 )
                 
-                st.download_button(
-                    "⬇️ 下载MIDI文件",
-                    data=midi_bytes,
-                    file_name=f"variant_{idx}.mid",
-                    mime="audio/midi",
-                    key=f"download_{idx}"
-                )
+                # 并排按钮：下载 和 保存本变体
+                btn_col1, btn_col2 = st.columns(2)
+                with btn_col1:
+                    st.download_button(
+                        "⬇️ 下载MIDI文件",
+                        data=midi_bytes,
+                        file_name=f"variant_{idx}.mid",
+                        mime="audio/midi",
+                        key=f"download_{idx}"
+                    )
+                with btn_col2:
+                    # 获取当前滑块值用于保存（从右侧滑块获取）
+                    current_s = st.session_state.get(f"s_{idx}", 0.5)
+                    current_b = st.session_state.get(f"b_{idx}", 0.5)
+                    current_f = st.session_state.get(f"f_{idx}", "")
+                    if st.button("💾 保存本变体", key=f"save_{idx}"):
+                        while len(st.session_state.labels_surprise) <= idx:
+                            st.session_state.labels_surprise.append(None)
+                        while len(st.session_state.labels_beauty) <= idx:
+                            st.session_state.labels_beauty.append(None)
+                        while len(st.session_state.labels_feelings) <= idx:
+                            st.session_state.labels_feelings.append("")
+                        st.session_state.labels_surprise[idx] = current_s
+                        st.session_state.labels_beauty[idx] = current_b
+                        st.session_state.labels_feelings[idx] = current_f
+                        st.success(f"变体 #{idx} 已保存")
             
             with right_col:
                 st.markdown("#### 标注")
+                # 显示当前保存的值（如果有）
                 if idx < len(st.session_state.labels_surprise):
                     current_s = st.session_state.labels_surprise[idx] if st.session_state.labels_surprise[idx] is not None else 0.5
                 else:
@@ -246,20 +265,9 @@ if st.session_state.variants:
                 else:
                     current_b = 0.5
                 
+                # 滑块
                 new_s = st.slider("意外度", 0.0, 1.0, current_s, key=f"s_{idx}")
                 new_b = st.slider("好听度", 0.0, 1.0, current_b, key=f"b_{idx}")
-                
-                if st.button("保存本变体", key=f"save_{idx}"):
-                    while len(st.session_state.labels_surprise) <= idx:
-                        st.session_state.labels_surprise.append(None)
-                    while len(st.session_state.labels_beauty) <= idx:
-                        st.session_state.labels_beauty.append(None)
-                    while len(st.session_state.labels_feelings) <= idx:
-                        st.session_state.labels_feelings.append("")
-                    
-                    st.session_state.labels_surprise[idx] = new_s
-                    st.session_state.labels_beauty[idx] = new_b
-                    st.session_state.labels_feelings[idx] = new_f
-                    st.success(f"变体 #{idx} 已保存")
+                # 右侧不再有保存按钮
 else:
     st.info("请在左侧上传MIDI文件并生成变体")
