@@ -34,6 +34,8 @@ if 'labels_beauty' not in st.session_state:
     st.session_state.labels_beauty = []
 if 'labels_feelings' not in st.session_state:
     st.session_state.labels_feelings = []
+if 'save_indicator' not in st.session_state:   # 新增：保存成功标记
+    st.session_state.save_indicator = []
 
 # ---------- 生成变体函数（增强音乐性）----------
 def generate_variant(melody_stream, surprise_strength=0.3):
@@ -174,10 +176,11 @@ with st.sidebar:
             st.session_state.labels_surprise = [None] * len(new_variants)
             st.session_state.labels_beauty = [None] * len(new_variants)
             st.session_state.labels_feelings = [""] * len(new_variants)
+            st.session_state.save_indicator = [""] * len(new_variants)   # 初始化保存标记
             st.success(f"已生成 {len(new_variants)} 个变体")
 
 # 主界面：标注（默认展开）
-st.markdown("请标注变体和感受")
+# 不再显示全局标题，改为在每个变体内显示
 
 if st.session_state.variants:
     for idx, var in enumerate(st.session_state.variants[:10]):  # 只显示前10个
@@ -191,8 +194,12 @@ if st.session_state.variants:
                 player_html = get_midi_player_html(midi_bytes, idx)
                 st.components.v1.html(player_html, height=50)
                 
-                # 添加一点间距
+                # 增加一点间距
                 st.write("")  # 空行
+                st.write("")  # 再多一行，使感受窗下移
+                
+                # 感受词上方的说明
+                st.markdown("**请标注变体听感**")
                 
                 # 感受词输入框
                 if idx < len(st.session_state.labels_feelings):
@@ -224,8 +231,8 @@ if st.session_state.variants:
                 new_s = st.slider("意外度", 0.0, 1.0, current_s, key=f"s_{idx}")
                 new_b = st.slider("好听度", 0.0, 1.0, current_b, key=f"b_{idx}")
                 
-                # 按钮并排：下载左，保存右
-                btn_col1, btn_col2 = st.columns(2)
+                # 三列按钮：下载、中间提示、保存
+                btn_col1, mid_col, btn_col2 = st.columns([1,1,1])
                 with btn_col1:
                     st.download_button(
                         "⬇️ 下载MIDI文件",
@@ -234,6 +241,10 @@ if st.session_state.variants:
                         mime="audio/midi",
                         key=f"download_{idx}"
                     )
+                with mid_col:
+                    # 显示保存成功标记
+                    if idx < len(st.session_state.save_indicator):
+                        st.markdown(f"<div style='text-align: center; font-size: 1.2rem;'>{st.session_state.save_indicator[idx]}</div>", unsafe_allow_html=True)
                 with btn_col2:
                     if st.button("💾 保存标注", key=f"save_{idx}"):
                         # 获取当前值
@@ -247,12 +258,14 @@ if st.session_state.variants:
                             st.session_state.labels_beauty.append(None)
                         while len(st.session_state.labels_feelings) <= idx:
                             st.session_state.labels_feelings.append("")
+                        while len(st.session_state.save_indicator) <= idx:
+                            st.session_state.save_indicator.append("")
                         
                         st.session_state.labels_surprise[idx] = current_s
                         st.session_state.labels_beauty[idx] = current_b
                         st.session_state.labels_feelings[idx] = current_f
+                        st.session_state.save_indicator[idx] = "✅"   # 显示成功标记
                         
-                        # 使用toast短暂提示，不占用布局
-                        st.toast(f"变体 #{idx} 已保存", icon="✅")
+                        # 可选：清除标记的机制（例如在滑块变化时清除）可后续添加
 else:
     st.info("请在左侧上传MIDI文件并生成变体")
