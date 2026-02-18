@@ -8,7 +8,7 @@ import base64
 from music21 import converter, note, stream, midi
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
-st.title("🎵 玄·律标注原型 (无缝背景版)")
+st.title("🎵 玄·律标注原型 (无缝紧凑版)")
 st.markdown("上传MIDI文件，生成变体，直接点击播放器试听（内置音源）。")
 
 # 初始化session_state
@@ -82,20 +82,20 @@ def get_midi_bytes(melody_stream):
 
 def get_midi_player_html(midi_bytes, player_id):
     """
-    返回一个仅包含播放条的 HTML 片段，无背景无间距（由父容器控制）。
+    返回一个仅包含播放条的 HTML 片段，无多余间距。
     """
     import base64
     midi_base64 = base64.b64encode(midi_bytes).decode('utf-8')
     data_url = f"data:audio/midi;base64,{midi_base64}"
 
     html = f"""
-    <div style="margin: 0; padding: 0; background: transparent;">
+    <div style="margin:0; padding:0; background:transparent; line-height:0;">
         <script src="https://cdn.jsdelivr.net/combine/npm/tone@14.7.58,npm/@magenta/music@1.23.1/es6/core.js,npm/focus-visible@5,npm/html-midi-player@1.5.0"></script>
         <midi-player
             id="player-{player_id}"
             src="{data_url}"
             sound-font
-            style="width: 100%;">
+            style="width:100%; margin:0; padding:0; display:block;">
         </midi-player>
     </div>
     """
@@ -160,13 +160,13 @@ if st.session_state.variants:
             with left_col:
                 midi_bytes = get_midi_bytes(var)
                 
-                # 统一的奶绿色背景容器样式
+                # 统一的奶绿色背景容器样式（上内边距0使播放条贴顶）
                 st.markdown(
                     """
                     <style>
                     .mint-container {
                         background-color: #e6f3da;
-                        padding: 12px;
+                        padding: 0 12px 12px 12px;  /* 上内边距为0，左右下保留 */
                         border-radius: 8px;
                         margin-bottom: 8px;
                     }
@@ -178,12 +178,12 @@ if st.session_state.variants:
                     unsafe_allow_html=True
                 )
                 
-                # 用div包裹播放器和感受词，实现无缝背景
+                # 用div包裹播放器和感受词
                 st.markdown('<div class="mint-container">', unsafe_allow_html=True)
                 
-                # 播放器
+                # 播放器（高度自适应，设置嵌入高度为50px足够）
                 player_html = get_midi_player_html(midi_bytes, idx)
-                st.components.v1.html(player_html, height=80)
+                st.components.v1.html(player_html, height=50)
                 
                 # 感受词输入框
                 if idx < len(st.session_state.labels_feelings):
