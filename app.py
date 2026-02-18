@@ -20,7 +20,7 @@ if 'labels_surprise' not in st.session_state:
     st.session_state.labels_surprise = []
 if 'labels_beauty' not in st.session_state:
     st.session_state.labels_beauty = []
-if 'labels_feelings' not in st.session_state:  # 新增：感受词列表
+if 'labels_feelings' not in st.session_state:
     st.session_state.labels_feelings = []
 
 # ---------- 生成变体函数（增强音乐性）----------
@@ -138,21 +138,25 @@ with st.sidebar:
         if not raw_melodies:
             st.warning("请先导入MIDI")
         else:
-            st.session_state.variants = []
-            st.session_state.variant_meta = []
+            # 生成新变体
+            new_variants = []
+            new_meta = []
             for mel in raw_melodies:
                 for i in range(n_per_original):
                     strength = random.uniform(0.2, 0.8)
                     var = generate_variant(mel, strength)
-                    st.session_state.variants.append(var)
-                    st.session_state.variant_meta.append({
+                    new_variants.append(var)
+                    new_meta.append({
                         'original_idx': len(raw_melodies)-1,
                         'surprise_strength': strength
                     })
-            st.session_state.labels_surprise = [None] * len(st.session_state.variants)
-            st.session_state.labels_beauty = [None] * len(st.session_state.variants)
-            st.session_state.labels_feelings = [""] * len(st.session_state.variants)  # 初始化感受词为空字符串
-            st.success(f"已生成 {len(st.session_state.variants)} 个变体")
+            # 重置所有标注数据
+            st.session_state.variants = new_variants
+            st.session_state.variant_meta = new_meta
+            st.session_state.labels_surprise = [None] * len(new_variants)
+            st.session_state.labels_beauty = [None] * len(new_variants)
+            st.session_state.labels_feelings = [""] * len(new_variants)  # 关键修复：重置感受词列表
+            st.success(f"已生成 {len(new_variants)} 个变体")
 
 # 主界面：标注（默认展开）
 st.header("3. 标注变体")
@@ -175,26 +179,39 @@ if st.session_state.variants:
             
             with right_col:
                 st.markdown("#### 标注")
-                # 当前值
-                current_s = st.session_state.labels_surprise[idx] if st.session_state.labels_surprise[idx] is not None else 0.5
-                current_b = st.session_state.labels_beauty[idx] if st.session_state.labels_beauty[idx] is not None else 0.5
-                current_f = st.session_state.labels_feelings[idx] if st.session_state.labels_feelings[idx] is not None else ""
+                # 确保索引有效
+                if idx < len(st.session_state.labels_surprise):
+                    current_s = st.session_state.labels_surprise[idx] if st.session_state.labels_surprise[idx] is not None else 0.5
+                else:
+                    current_s = 0.5
+                if idx < len(st.session_state.labels_beauty):
+                    current_b = st.session_state.labels_beauty[idx] if st.session_state.labels_beauty[idx] is not None else 0.5
+                else:
+                    current_b = 0.5
+                if idx < len(st.session_state.labels_feelings):
+                    current_f = st.session_state.labels_feelings[idx] if st.session_state.labels_feelings[idx] is not None else ""
+                else:
+                    current_f = ""
                 
-                # 滑块
                 new_s = st.slider("意外度", 0.0, 1.0, current_s, key=f"s_{idx}")
                 new_b = st.slider("好听度", 0.0, 1.0, current_b, key=f"b_{idx}")
-                
-                # 感受词输入框（文本区域，多行可选）
                 new_f = st.text_area(
                     "感受词（可输入多个词，逗号分隔）",
                     value=current_f,
-                    height=100,  # 适当高度，利用空白
+                    height=100,
                     placeholder="例如：跳跃、不协和、温柔...",
                     key=f"f_{idx}"
                 )
                 
-                # 保存按钮
                 if st.button("保存标注", key=f"save_{idx}"):
+                    # 再次确保列表足够长（理论上已经重置，但以防万一）
+                    while len(st.session_state.labels_surprise) <= idx:
+                        st.session_state.labels_surprise.append(None)
+                    while len(st.session_state.labels_beauty) <= idx:
+                        st.session_state.labels_beauty.append(None)
+                    while len(st.session_state.labels_feelings) <= idx:
+                        st.session_state.labels_feelings.append("")
+                    
                     st.session_state.labels_surprise[idx] = new_s
                     st.session_state.labels_beauty[idx] = new_b
                     st.session_state.labels_feelings[idx] = new_f
