@@ -6,7 +6,7 @@ import random
 from music21 import converter, note, stream, midi
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
-st.title("🎵 玄·律标注原型 (小白部署版)")
+st.title("🎵 玄·律标注原型 (网页部署版)")
 st.markdown("上传MIDI文件，生成变体，标注意外度和好听度。")
 
 # 初始化session_state
@@ -136,4 +136,5 @@ if st.session_state.variants:
                     st.session_state.labels_beauty[idx] = new_b
                     st.success("已保存")
 else:
+
     st.info("请在左侧上传MIDI文件并生成变体")
