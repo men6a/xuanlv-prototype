@@ -8,7 +8,7 @@ import base64
 from music21 import converter, note, stream, midi
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
-st.title("🎵 玄·律标注原型 (带感受词版)")
+st.title("🎵 玄·律标注原型 (感受词嵌入左侧)")
 st.markdown("上传MIDI文件，生成变体，直接点击播放器试听（内置音源）。")
 
 # 初始化session_state
@@ -138,7 +138,6 @@ with st.sidebar:
         if not raw_melodies:
             st.warning("请先导入MIDI")
         else:
-            # 生成新变体
             new_variants = []
             new_meta = []
             for mel in raw_melodies:
@@ -150,12 +149,11 @@ with st.sidebar:
                         'original_idx': len(raw_melodies)-1,
                         'surprise_strength': strength
                     })
-            # 重置所有标注数据
             st.session_state.variants = new_variants
             st.session_state.variant_meta = new_meta
             st.session_state.labels_surprise = [None] * len(new_variants)
             st.session_state.labels_beauty = [None] * len(new_variants)
-            st.session_state.labels_feelings = [""] * len(new_variants)  # 关键修复：重置感受词列表
+            st.session_state.labels_feelings = [""] * len(new_variants)
             st.success(f"已生成 {len(new_variants)} 个变体")
 
 # 主界面：标注（默认展开）
@@ -169,6 +167,40 @@ if st.session_state.variants:
                 midi_bytes = get_midi_bytes(var)
                 player_html = get_midi_player_html(midi_bytes, idx)
                 st.components.v1.html(player_html, height=200)
+                
+                # ---------- 感受词输入框（嵌入左侧，带奶绿色背景）----------
+                # 当前值
+                if idx < len(st.session_state.labels_feelings):
+                    current_f = st.session_state.labels_feelings[idx] if st.session_state.labels_feelings[idx] is not None else ""
+                else:
+                    current_f = ""
+                
+                # 使用容器添加背景色
+                with st.container():
+                    st.markdown(
+                        """
+                        <style>
+                        .feelings-box {
+                            background-color: #e6f3da;
+                            padding: 10px;
+                            border-radius: 8px;
+                            margin-top: 8px;
+                        }
+                        </style>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                    st.markdown('<div class="feelings-box">', unsafe_allow_html=True)
+                    new_f = st.text_area(
+                        "感受词（可输入多个词，逗号分隔）",
+                        value=current_f,
+                        height=100,
+                        placeholder="例如：跳跃、不协和、温柔...",
+                        key=f"f_{idx}"
+                    )
+                    st.markdown('</div>', unsafe_allow_html=True)
+                # ---------------------------------------------------------
+                
                 st.download_button(
                     "⬇️ 下载MIDI文件",
                     data=midi_bytes,
@@ -179,7 +211,7 @@ if st.session_state.variants:
             
             with right_col:
                 st.markdown("#### 标注")
-                # 确保索引有效
+                # 当前值
                 if idx < len(st.session_state.labels_surprise):
                     current_s = st.session_state.labels_surprise[idx] if st.session_state.labels_surprise[idx] is not None else 0.5
                 else:
@@ -188,23 +220,12 @@ if st.session_state.variants:
                     current_b = st.session_state.labels_beauty[idx] if st.session_state.labels_beauty[idx] is not None else 0.5
                 else:
                     current_b = 0.5
-                if idx < len(st.session_state.labels_feelings):
-                    current_f = st.session_state.labels_feelings[idx] if st.session_state.labels_feelings[idx] is not None else ""
-                else:
-                    current_f = ""
                 
                 new_s = st.slider("意外度", 0.0, 1.0, current_s, key=f"s_{idx}")
                 new_b = st.slider("好听度", 0.0, 1.0, current_b, key=f"b_{idx}")
-                new_f = st.text_area(
-                    "感受词（可输入多个词，逗号分隔）",
-                    value=current_f,
-                    height=100,
-                    placeholder="例如：跳跃、不协和、温柔...",
-                    key=f"f_{idx}"
-                )
                 
                 if st.button("保存标注", key=f"save_{idx}"):
-                    # 再次确保列表足够长（理论上已经重置，但以防万一）
+                    # 确保列表足够长
                     while len(st.session_state.labels_surprise) <= idx:
                         st.session_state.labels_surprise.append(None)
                     while len(st.session_state.labels_beauty) <= idx:
@@ -214,7 +235,8 @@ if st.session_state.variants:
                     
                     st.session_state.labels_surprise[idx] = new_s
                     st.session_state.labels_beauty[idx] = new_b
-                    st.session_state.labels_feelings[idx] = new_f
+                    # 从session_state中获取感受词的最新值（因为text_area的key是f_{idx}）
+                    st.session_state.labels_feelings[idx] = st.session_state[f"f_{idx}"]
                     st.success("✅ 已保存")
 else:
     st.info("请在左侧上传MIDI文件并生成变体")
