@@ -192,8 +192,31 @@ if st.session_state.variants:
                 player_html = get_midi_player_html(midi_bytes, idx)
                 st.components.v1.html(player_html, height=60)
                 
-                # 感受词上方的说明（紧贴播放条，移除空行）
-                st.markdown("**请标注变体听感**")
+                # 标题行：左侧为“请标注变体听感”，右侧为保存按钮
+                title_col1, title_col2 = st.columns([3, 1])
+                with title_col1:
+                    st.markdown("**请标注变体听感**")
+                with title_col2:
+                    # 保存按钮靠右
+                    if st.button("💾 保存标注", key=f"save_left_{idx}"):
+                        # 获取当前值
+                        current_s = st.session_state.get(f"s_{idx}", 0.5)
+                        current_b = st.session_state.get(f"b_{idx}", 0.5)
+                        current_f = st.session_state.get(f"f_{idx}", "")
+                        
+                        while len(st.session_state.labels_surprise) <= idx:
+                            st.session_state.labels_surprise.append(None)
+                        while len(st.session_state.labels_beauty) <= idx:
+                            st.session_state.labels_beauty.append(None)
+                        while len(st.session_state.labels_feelings) <= idx:
+                            st.session_state.labels_feelings.append("")
+                        while len(st.session_state.save_indicator) <= idx:
+                            st.session_state.save_indicator.append("")
+                        
+                        st.session_state.labels_surprise[idx] = current_s
+                        st.session_state.labels_beauty[idx] = current_b
+                        st.session_state.labels_feelings[idx] = current_f
+                        st.session_state.save_indicator[idx] = "✅"
                 
                 # 感受词输入框
                 if idx < len(st.session_state.labels_feelings):
@@ -225,20 +248,9 @@ if st.session_state.variants:
                 new_s = st.slider("意外度", 0.0, 1.0, current_s, key=f"s_{idx}")
                 new_b = st.slider("好听度", 0.0, 1.0, current_b, key=f"b_{idx}")
                 
-                # 三列按钮：下载、中间提示、保存（调整列宽，使下载和保存按钮不换行）
-                btn_col1, mid_col, btn_col2 = st.columns([1.5, 1, 1.5])
-                with btn_col1:
-                    # 添加CSS确保按钮文字在一行
-                    st.markdown("""
-                    <style>
-                    div[data-testid="column"] .stDownloadButton button {
-                        white-space: nowrap;
-                        overflow: visible;
-                        width: auto;
-                        min-width: 120px;
-                    }
-                    </style>
-                    """, unsafe_allow_html=True)
+                # 右侧列下方：下载按钮和保存提示（✅）
+                col1, col2 = st.columns([1, 1])
+                with col1:
                     st.download_button(
                         "⬇️ 下载MIDI文件",
                         data=get_midi_bytes(var),
@@ -246,29 +258,8 @@ if st.session_state.variants:
                         mime="audio/midi",
                         key=f"download_{idx}"
                     )
-                with mid_col:
-                    # 显示保存成功标记
+                with col2:
                     if idx < len(st.session_state.save_indicator):
                         st.markdown(f"<div style='text-align: center; font-size: 1.2rem;'>{st.session_state.save_indicator[idx]}</div>", unsafe_allow_html=True)
-                with btn_col2:
-                    if st.button("💾 保存标注", key=f"save_{idx}"):
-                        # 获取当前值
-                        current_s = st.session_state.get(f"s_{idx}", 0.5)
-                        current_b = st.session_state.get(f"b_{idx}", 0.5)
-                        current_f = st.session_state.get(f"f_{idx}", "")
-                        
-                        while len(st.session_state.labels_surprise) <= idx:
-                            st.session_state.labels_surprise.append(None)
-                        while len(st.session_state.labels_beauty) <= idx:
-                            st.session_state.labels_beauty.append(None)
-                        while len(st.session_state.labels_feelings) <= idx:
-                            st.session_state.labels_feelings.append("")
-                        while len(st.session_state.save_indicator) <= idx:
-                            st.session_state.save_indicator.append("")
-                        
-                        st.session_state.labels_surprise[idx] = current_s
-                        st.session_state.labels_beauty[idx] = current_b
-                        st.session_state.labels_feelings[idx] = current_f
-                        st.session_state.save_indicator[idx] = "✅"
 else:
     st.info("请在左侧上传MIDI文件并生成变体")
