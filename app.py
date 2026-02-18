@@ -10,7 +10,7 @@ from music21 import converter, note, stream, midi
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
 
-# 自定义标题样式（与普通文本大小一致）
+# 自定义标题样式
 st.markdown("""
 <style>
 .main-title {
@@ -95,7 +95,7 @@ def get_midi_bytes(melody_stream):
 
 def get_midi_player_html(midi_bytes, player_id):
     """
-    返回一个仅包含播放条的 HTML 片段，背景透明（由父容器提供奶绿色），
+    返回一个仅包含播放条的 HTML 片段，背景透明（无背景色），
     按钮和进度条使用深绿色，无任何边框、阴影或多余线条。
     """
     import base64
@@ -181,24 +181,20 @@ with st.sidebar:
 # 主界面：标注（默认展开）
 st.header("3. 标注变体")
 
-# 全局保存按钮（放在右侧列上方）
+# 全局保存按钮
 col_global_left, col_global_right = st.columns([3, 1])
 with col_global_right:
     if st.button("💾 保存所有变体", type="primary"):
-        # 遍历所有变体，将当前界面的值保存到正式列表
         for idx in range(len(st.session_state.variants[:10])):
             current_s = st.session_state.get(f"s_{idx}", 0.5)
             current_b = st.session_state.get(f"b_{idx}", 0.5)
             current_f = st.session_state.get(f"f_{idx}", "")
-            
-            # 确保列表足够长
             while len(st.session_state.labels_surprise) <= idx:
                 st.session_state.labels_surprise.append(None)
             while len(st.session_state.labels_beauty) <= idx:
                 st.session_state.labels_beauty.append(None)
             while len(st.session_state.labels_feelings) <= idx:
                 st.session_state.labels_feelings.append("")
-            
             st.session_state.labels_surprise[idx] = current_s
             st.session_state.labels_beauty[idx] = current_b
             st.session_state.labels_feelings[idx] = current_f
@@ -212,37 +208,17 @@ if st.session_state.variants:
             with left_col:
                 midi_bytes = get_midi_bytes(var)
                 
-                # 统一的奶绿色背景容器（上内边距0使播放条贴顶）
-                st.markdown(
-                    """
-                    <style>
-                    .mint-container {
-                        background-color: #e6f3da;
-                        padding: 0 12px 12px 12px;
-                        border-radius: 8px;
-                        margin-bottom: 8px;
-                    }
-                    .mint-container .stTextArea textarea {
-                        background-color: #f8fff0;
-                    }
-                    </style>
-                    """,
-                    unsafe_allow_html=True
-                )
-                
-                st.markdown('<div class="mint-container">', unsafe_allow_html=True)
-                
-                # 播放器（背景透明，由容器提供奶绿色）
+                # 播放器直接嵌入，无背景容器
                 player_html = get_midi_player_html(midi_bytes, idx)
                 st.components.v1.html(player_html, height=50)
                 
-                # 感受词输入框
+                # 感受词输入框（添加轻微背景区分）
                 if idx < len(st.session_state.labels_feelings):
                     current_f = st.session_state.labels_feelings[idx] if st.session_state.labels_feelings[idx] is not None else ""
                 else:
                     current_f = ""
                 
-                new_f = st.text_area(
+                st.text_area(
                     "感受词（可输入多个词，逗号分隔）",
                     value=current_f,
                     height=80,
@@ -251,9 +227,6 @@ if st.session_state.variants:
                     label_visibility="collapsed"
                 )
                 
-                st.markdown('</div>', unsafe_allow_html=True)
-                
-                # 下载按钮放在容器外
                 st.download_button(
                     "⬇️ 下载MIDI文件",
                     data=midi_bytes,
@@ -264,7 +237,6 @@ if st.session_state.variants:
             
             with right_col:
                 st.markdown("#### 标注")
-                # 确保索引有效
                 if idx < len(st.session_state.labels_surprise):
                     current_s = st.session_state.labels_surprise[idx] if st.session_state.labels_surprise[idx] is not None else 0.5
                 else:
@@ -277,9 +249,7 @@ if st.session_state.variants:
                 new_s = st.slider("意外度", 0.0, 1.0, current_s, key=f"s_{idx}")
                 new_b = st.slider("好听度", 0.0, 1.0, current_b, key=f"b_{idx}")
                 
-                # 单个保存按钮
                 if st.button("保存本变体", key=f"save_{idx}"):
-                    # 确保列表足够长
                     while len(st.session_state.labels_surprise) <= idx:
                         st.session_state.labels_surprise.append(None)
                     while len(st.session_state.labels_beauty) <= idx:
