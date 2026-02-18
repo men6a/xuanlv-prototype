@@ -34,7 +34,7 @@ if 'labels_beauty' not in st.session_state:
     st.session_state.labels_beauty = []
 if 'labels_feelings' not in st.session_state:
     st.session_state.labels_feelings = []
-if 'save_indicator' not in st.session_state:   # 新增：保存成功标记
+if 'save_indicator' not in st.session_state:
     st.session_state.save_indicator = []
 
 # ---------- 生成变体函数（增强音乐性）----------
@@ -176,12 +176,10 @@ with st.sidebar:
             st.session_state.labels_surprise = [None] * len(new_variants)
             st.session_state.labels_beauty = [None] * len(new_variants)
             st.session_state.labels_feelings = [""] * len(new_variants)
-            st.session_state.save_indicator = [""] * len(new_variants)   # 初始化保存标记
+            st.session_state.save_indicator = [""] * len(new_variants)
             st.success(f"已生成 {len(new_variants)} 个变体")
 
 # 主界面：标注（默认展开）
-# 不再显示全局标题，改为在每个变体内显示
-
 if st.session_state.variants:
     for idx, var in enumerate(st.session_state.variants[:10]):  # 只显示前10个
         with st.expander(f"变体 #{idx}", expanded=True):
@@ -190,15 +188,11 @@ if st.session_state.variants:
             with left_col:
                 midi_bytes = get_midi_bytes(var)
                 
-                # 播放器
+                # 播放器（高度略增确保完整显示）
                 player_html = get_midi_player_html(midi_bytes, idx)
-                st.components.v1.html(player_html, height=50)
+                st.components.v1.html(player_html, height=60)
                 
-                # 增加一点间距
-                st.write("")  # 空行
-                st.write("")  # 再多一行，使感受窗下移
-                
-                # 感受词上方的说明
+                # 感受词上方的说明（紧贴播放条，移除空行）
                 st.markdown("**请标注变体听感**")
                 
                 # 感受词输入框
@@ -231,9 +225,20 @@ if st.session_state.variants:
                 new_s = st.slider("意外度", 0.0, 1.0, current_s, key=f"s_{idx}")
                 new_b = st.slider("好听度", 0.0, 1.0, current_b, key=f"b_{idx}")
                 
-                # 三列按钮：下载、中间提示、保存
-                btn_col1, mid_col, btn_col2 = st.columns([1,1,1])
+                # 三列按钮：下载、中间提示、保存（调整列宽，使下载和保存按钮不换行）
+                btn_col1, mid_col, btn_col2 = st.columns([1.5, 1, 1.5])
                 with btn_col1:
+                    # 添加CSS确保按钮文字在一行
+                    st.markdown("""
+                    <style>
+                    div[data-testid="column"] .stDownloadButton button {
+                        white-space: nowrap;
+                        overflow: visible;
+                        width: auto;
+                        min-width: 120px;
+                    }
+                    </style>
+                    """, unsafe_allow_html=True)
                     st.download_button(
                         "⬇️ 下载MIDI文件",
                         data=get_midi_bytes(var),
@@ -264,8 +269,6 @@ if st.session_state.variants:
                         st.session_state.labels_surprise[idx] = current_s
                         st.session_state.labels_beauty[idx] = current_b
                         st.session_state.labels_feelings[idx] = current_f
-                        st.session_state.save_indicator[idx] = "✅"   # 显示成功标记
-                        
-                        # 可选：清除标记的机制（例如在滑块变化时清除）可后续添加
+                        st.session_state.save_indicator[idx] = "✅"
 else:
     st.info("请在左侧上传MIDI文件并生成变体")
