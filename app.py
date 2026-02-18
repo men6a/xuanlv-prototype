@@ -9,24 +9,27 @@ from music21 import converter, note, stream, midi
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
 
-# 全局字体调小（通过CSS）
+# 全局字体调小
 st.markdown("""
 <style>
 html, body, [class*="css"]  {
     font-size: 0.9rem;
 }
 .main-title {
-    font-size: 1.4rem;  /* 主标题稍大，但比之前小 */
+    font-size: 1.4rem;
     font-weight: bold;
     margin-bottom: 1rem;
 }
-/* 滑块标签调小 */
 .stSlider label {
     font-size: 0.9rem !important;
 }
-/* 按钮文字保持相对大小 */
-.stButton button, .stDownloadButton button {
-    font-size: 0.9rem !important;
+/* 按钮字体更小，并向上移动靠近感受框 */
+.button-row {
+    margin-top: -10px;  /* 上移按钮行 */
+}
+.button-row .stButton button, .button-row .stDownloadButton button {
+    font-size: 0.75rem !important;  /* 缩小两号 */
+    padding: 0.2rem 0.5rem;         /* 减小内边距 */
 }
 </style>
 """, unsafe_allow_html=True)
@@ -34,7 +37,7 @@ html, body, [class*="css"]  {
 st.markdown('<div class="main-title">🎵 玄·律标注原型</div>', unsafe_allow_html=True)
 st.markdown("上传MIDI文件，生成变体，直接点击播放器试听（内置音源）。")
 
-# 初始化session_state
+# 初始化session_state（与之前相同）
 if 'variants' not in st.session_state:
     st.session_state.variants = []
 if 'variant_meta' not in st.session_state:
@@ -48,7 +51,7 @@ if 'labels_feelings' not in st.session_state:
 if 'save_indicator' not in st.session_state:
     st.session_state.save_indicator = []
 
-# ---------- 生成变体函数（增强音乐性）----------
+# 生成变体函数（不变）
 def generate_variant(melody_stream, surprise_strength=0.3):
     C_MAJOR = {0, 2, 4, 5, 7, 9, 11}
     COMMON_DURS = [0.5, 1, 2]
@@ -90,10 +93,8 @@ def generate_variant(melody_stream, surprise_strength=0.3):
     for n in new_notes:
         new_stream.append(n)
     return new_stream
-# ---------------------------------------------
 
 def get_midi_bytes(melody_stream):
-    """将music21流转换为MIDI文件字节数据"""
     temp = tempfile.NamedTemporaryFile(suffix='.mid', delete=False)
     mf = midi.translate.music21ObjectToMidiFile(melody_stream)
     mf.open(temp.name, 'wb')
@@ -106,13 +107,9 @@ def get_midi_bytes(melody_stream):
     return data
 
 def get_midi_player_html(midi_bytes, player_id):
-    """
-    返回一个仅包含播放条的 HTML 片段，背景透明，按钮和进度条使用深绿色。
-    """
     import base64
     midi_base64 = base64.b64encode(midi_bytes).decode('utf-8')
     data_url = f"data:audio/midi;base64,{midi_base64}"
-
     html = f"""
     <div style="margin:0; padding:0; background:transparent; line-height:0;">
         <script src="https://cdn.jsdelivr.net/combine/npm/tone@14.7.58,npm/@magenta/music@1.23.1/es6/core.js,npm/focus-visible@5,npm/html-midi-player@1.5.0"></script>
@@ -140,11 +137,10 @@ def get_midi_player_html(midi_bytes, player_id):
     """
     return html
 
-# 侧边栏：上传MIDI
+# 侧边栏（不变）
 with st.sidebar:
     st.header("1. 导入MIDI文件")
     uploaded_files = st.file_uploader("选择MIDI文件", type=['mid','midi'], accept_multiple_files=True)
-
     raw_melodies = []
     if uploaded_files:
         for f in uploaded_files:
@@ -190,28 +186,22 @@ with st.sidebar:
             st.session_state.save_indicator = [""] * len(new_variants)
             st.success(f"已生成 {len(new_variants)} 个变体")
 
-# 主界面：标注（默认展开）
+# 主界面
 if st.session_state.variants:
-    for idx, var in enumerate(st.session_state.variants[:10]):  # 只显示前10个
+    for idx, var in enumerate(st.session_state.variants[:10]):
         indicator = st.session_state.save_indicator[idx] if idx < len(st.session_state.save_indicator) else ""
         expander_title = f"变体 #{idx} {indicator}"
-        
         with st.expander(expander_title, expanded=True):
             left_col, right_col = st.columns(2)
-            
             with left_col:
                 midi_bytes = get_midi_bytes(var)
-                
-                # 播放器
                 player_html = get_midi_player_html(midi_bytes, idx)
                 st.components.v1.html(player_html, height=60)
-                
-                # 感受词输入框（标题已融入placeholder）
+
                 if idx < len(st.session_state.labels_feelings):
                     current_f = st.session_state.labels_feelings[idx] if st.session_state.labels_feelings[idx] is not None else ""
                 else:
                     current_f = ""
-                
                 st.text_area(
                     "感受词",
                     value=current_f,
@@ -220,28 +210,9 @@ if st.session_state.variants:
                     key=f"f_{idx}",
                     label_visibility="collapsed"
                 )
-                
-                # 按钮行：下载左对齐，保存右对齐且不换行
-                st.markdown(
-                    """
-                    <style>
-                    /* 左列按钮左对齐 */
-                    div[data-testid="column"]:nth-child(1) .stButton button {
-                        float: left;
-                    }
-                    /* 右列按钮右对齐且不换行 */
-                    div[data-testid="column"]:nth-child(2) .stButton {
-                        text-align: right;
-                    }
-                    div[data-testid="column"]:nth-child(2) .stButton button {
-                        white-space: nowrap;
-                        width: auto;
-                        display: inline-block;
-                    }
-                    </style>
-                    """,
-                    unsafe_allow_html=True
-                )
+
+                # 按钮行添加类 button-row 以应用样式
+                st.markdown('<div class="button-row">', unsafe_allow_html=True)
                 btn_col1, btn_col2 = st.columns(2)
                 with btn_col1:
                     st.download_button(
@@ -256,7 +227,7 @@ if st.session_state.variants:
                         current_s = st.session_state.get(f"s_{idx}", 0.5)
                         current_b = st.session_state.get(f"b_{idx}", 0.5)
                         current_f = st.session_state.get(f"f_{idx}", "")
-                        
+
                         while len(st.session_state.labels_surprise) <= idx:
                             st.session_state.labels_surprise.append(None)
                         while len(st.session_state.labels_beauty) <= idx:
@@ -265,13 +236,14 @@ if st.session_state.variants:
                             st.session_state.labels_feelings.append("")
                         while len(st.session_state.save_indicator) <= idx:
                             st.session_state.save_indicator.append("")
-                        
+
                         st.session_state.labels_surprise[idx] = current_s
                         st.session_state.labels_beauty[idx] = current_b
                         st.session_state.labels_feelings[idx] = current_f
                         st.session_state.save_indicator[idx] = "✅"
                         st.rerun()
-            
+                st.markdown('</div>', unsafe_allow_html=True)
+
             with right_col:
                 if idx < len(st.session_state.labels_surprise):
                     current_s = st.session_state.labels_surprise[idx] if st.session_state.labels_surprise[idx] is not None else 0.5
@@ -281,7 +253,6 @@ if st.session_state.variants:
                     current_b = st.session_state.labels_beauty[idx] if st.session_state.labels_beauty[idx] is not None else 0.5
                 else:
                     current_b = 0.5
-                
                 new_s = st.slider("意外度评分", 0.0, 1.0, current_s, key=f"s_{idx}")
                 new_b = st.slider("好听度评分", 0.0, 1.0, current_b, key=f"b_{idx}")
 else:
