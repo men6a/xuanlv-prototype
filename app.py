@@ -8,7 +8,7 @@ import base64
 from music21 import converter, note, stream, midi
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
-st.title("🎵 玄·律标注原型 (html-midi-player 版)")
+st.title("🎵 玄·律标注原型 (美观版)")
 st.markdown("上传MIDI文件，生成变体，直接点击播放器试听（内置音源）。")
 
 # 初始化session_state
@@ -80,39 +80,27 @@ def get_midi_bytes(melody_stream):
 
 def get_midi_player_html(midi_bytes, player_id):
     """
-    返回一个内嵌 html-midi-player 的 HTML 片段。
-    将 MIDI 字节转为 Data URL，直接传给 src 属性。
+    返回一个内嵌 html-midi-player 的 HTML 片段，背景色为奶绿色。
     """
     import base64
     midi_base64 = base64.b64encode(midi_bytes).decode('utf-8')
     data_url = f"data:audio/midi;base64,{midi_base64}"
 
-    # 引入必要的库：Tone.js, Magenta.js, focus-visible, html-midi-player
-    # 使用 jsDelivr CDN 组合 [citation:4][citation:8]
     html = f"""
-    <div style="margin: 10px 0;">
+    <div style="background-color: #e6f3da; padding: 12px; border-radius: 8px; margin: 8px 0;">
         <script src="https://cdn.jsdelivr.net/combine/npm/tone@14.7.58,npm/@magenta/music@1.23.1/es6/core.js,npm/focus-visible@5,npm/html-midi-player@1.5.0"></script>
         <midi-player
             id="player-{player_id}"
             src="{data_url}"
             sound-font
             visualizer="#visualizer-{player_id}"
-            style="width: 100%; padding: 8px; background: #f0f2f6; border-radius: 8px;">
+            style="width: 100%;">
         </midi-player>
         <midi-visualizer
             id="visualizer-{player_id}"
             type="piano-roll"
-            style="width: 100%; height: 100px; margin-top: 8px;">
+            style="width: 100%; height: 100px; margin-top: 8px; background-color: #f8fff0; border-radius: 4px;">
         </midi-visualizer>
-        <script>
-            (function() {{
-                // 可选：添加错误监听，方便调试 [citation:2]
-                var player = document.getElementById('player-{player_id}');
-                player.addEventListener('error', function(e) {{
-                    console.error('播放器错误:', e.detail);
-                }});
-            }})();
-        </script>
     </div>
     """
     return html
@@ -168,13 +156,14 @@ st.header("3. 标注变体")
 if st.session_state.variants:
     for idx, var in enumerate(st.session_state.variants[:10]):  # 只显示前10个
         with st.expander(f"变体 #{idx}", expanded=True):
-            col1, col2 = st.columns([1.5, 1])
-            with col1:
+            # 左右两列宽度相等，实现播放条与滑块区域平分
+            left_col, right_col = st.columns(2)
+            
+            with left_col:
                 midi_bytes = get_midi_bytes(var)
-                # 嵌入 html-midi-player
                 player_html = get_midi_player_html(midi_bytes, idx)
-                st.components.v1.html(player_html, height=180)
-                # 下载按钮备用
+                st.components.v1.html(player_html, height=200)
+                # 下载按钮放在播放器下方
                 st.download_button(
                     "⬇️ 下载MIDI文件",
                     data=midi_bytes,
@@ -182,14 +171,18 @@ if st.session_state.variants:
                     mime="audio/midi",
                     key=f"download_{idx}"
                 )
-            with col2:
+            
+            with right_col:
+                st.markdown("#### 标注")
                 current_s = st.session_state.labels_surprise[idx] if st.session_state.labels_surprise[idx] is not None else 0.5
                 current_b = st.session_state.labels_beauty[idx] if st.session_state.labels_beauty[idx] is not None else 0.5
+                
                 new_s = st.slider("意外度", 0.0, 1.0, current_s, key=f"s_{idx}")
                 new_b = st.slider("好听度", 0.0, 1.0, current_b, key=f"b_{idx}")
+                
                 if st.button("保存标注", key=f"save_{idx}"):
                     st.session_state.labels_surprise[idx] = new_s
                     st.session_state.labels_beauty[idx] = new_b
-                    st.success("已保存")
+                    st.success("✅ 已保存")
 else:
     st.info("请在左侧上传MIDI文件并生成变体")
