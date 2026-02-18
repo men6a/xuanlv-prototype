@@ -191,6 +191,9 @@ if st.session_state.variants:
                 player_html = get_midi_player_html(midi_bytes, idx)
                 st.components.v1.html(player_html, height=50)
                 
+                # 添加一点间距
+                st.write("")  # 空行
+                
                 # 感受词输入框
                 if idx < len(st.session_state.labels_feelings):
                     current_f = st.session_state.labels_feelings[idx] if st.session_state.labels_feelings[idx] is not None else ""
@@ -221,18 +224,17 @@ if st.session_state.variants:
                 new_s = st.slider("意外度", 0.0, 1.0, current_s, key=f"s_{idx}")
                 new_b = st.slider("好听度", 0.0, 1.0, current_b, key=f"b_{idx}")
                 
-                # 按钮并排放在滑块下方
+                # 按钮并排：下载左，保存右
                 btn_col1, btn_col2 = st.columns(2)
                 with btn_col1:
                     st.download_button(
                         "⬇️ 下载MIDI文件",
-                        data=get_midi_bytes(var),  # 重新生成以确保数据最新
+                        data=get_midi_bytes(var),
                         file_name=f"variant_{idx}.mid",
                         mime="audio/midi",
                         key=f"download_{idx}"
                     )
                 with btn_col2:
-                    # 保存按钮
                     if st.button("💾 保存标注", key=f"save_{idx}"):
                         # 获取当前值
                         current_s = st.session_state.get(f"s_{idx}", 0.5)
@@ -249,6 +251,8 @@ if st.session_state.variants:
                         st.session_state.labels_surprise[idx] = current_s
                         st.session_state.labels_beauty[idx] = current_b
                         st.session_state.labels_feelings[idx] = current_f
-                        st.success(f"变体 #{idx} 已保存")
+                        
+                        # 使用toast短暂提示，不占用布局
+                        st.toast(f"变体 #{idx} 已保存", icon="✅")
 else:
     st.info("请在左侧上传MIDI文件并生成变体")
