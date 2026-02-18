@@ -6,8 +6,7 @@ import random
 import copy
 import base64
 import re
-from music21 import converter, note, stream, midi, chord, interval, pitch, meter
-from collections import Counter
+from music21 import converter, note, stream, midi, chord, interval, pitch, meter, instrument
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
 
@@ -52,7 +51,7 @@ html, body, [class*="css"]  {
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-title">🎵 玄·律标注原型</div>', unsafe_allow_html=True)
-st.markdown("上传MIDI文件，从动机发展出完整乐段，并标注听感。")
+st.markdown("上传MIDI文件，从动机发展出带左手柱式和弦的完整乐段，并标注听感。")
 
 # 初始化session_state
 if 'variants' not in st.session_state:
@@ -173,11 +172,25 @@ class MusicTheoryEngine:
         return {(root_pitch_class + offset) % 12 for offset in [0, 4, 7]}
     
     @classmethod
+    def get_bass_note(cls, chord_degree, key='C', mode='major', octave=3):
+        """获取指定和弦的根音音高（MIDI值），octave为八度（C4=60）"""
+        note_to_idx = {'C':0, 'C#':1, 'Db':1, 'D':2, 'D#':3, 'Eb':3, 'E':4, 
+                      'F':5, 'F#':6, 'Gb':6, 'G':7, 'G#':8, 'Ab':8, 'A':9, 
+                      'A#':10, 'Bb':10, 'B':11}
+        root_idx = note_to_idx.get(key, 0)
+        degree_to_interval = [0, 2, 4, 5, 7, 9, 11]
+        if chord_degree >= len(degree_to_interval):
+            chord_degree = chord_degree % 7
+        pitch_class = (root_idx + degree_to_interval[chord_degree]) % 12
+        # 转换为MIDI音高：octave*12 + pitch_class，octave 0为C0
+        return octave * 12 + pitch_class
+    
+    @classmethod
     def interval_consonance(cls, interval):
         interval = abs(interval) % 12
         return cls.CONSONANCE_MATRIX.get(interval, 0.5)
 
-# ==================== 动机发展功能 ====================
+# ==================== 动机发展功能（带左右手） ====================
 
 def get_total_measures(stream_obj):
     """获取流的总小节数（基于音符的measureNumber）"""
@@ -244,6 +257,20 @@ def apply_development(motif_notes, technique, scale_notes):
     else:
         return motif_notes
 
+def limit_range(notes, min_pitch, max_pitch):
+    """将音符限制在指定音域内，超出时八度移位"""
+    for n in notes:
+        p = n.pitch.midi
+        if p < min_pitch:
+            # 向上移八度直到进入范围
+            while p < min_pitch:
+                p += 12
+        elif p > max_pitch:
+            while p > max_pitch:
+                p -= 12
+        n.pitch.midi = p
+    return notes
+
 def develop_motif_with_progression_advanced(
     motif_stream, target_measures, chord_sequence_str,
     chords_per_bar, development_technique, stretch_factor,
@@ -251,15 +278,15 @@ def develop_motif_with_progression_advanced(
 ):
     """
     将动机发展为指定小节数的乐段，支持自定义和弦进程、每小节和弦数、发展手法、节奏伸缩
-    chord_sequence_str: 如 "I, IV, V, I" 或 "1,4,5,1"
+    返回一个Score，包含右手旋律Part和左手柱式和弦Part
     """
     if motif_stream is None or len(motif_stream.notes) == 0:
-        return stream.Stream()
+        return stream.Score()
     
-    # 解析和弦序列，支持罗马数字或阿拉伯数字
+    # 解析和弦序列
     tokens = [s.strip() for s in re.split(r'[,\s]+', chord_sequence_str) if s.strip()]
     if not tokens:
-        return stream.Stream()
+        return stream.Score()
     
     chord_degrees = [MusicTheoryEngine.roman_or_num_to_degree(tok) for tok in tokens]
     
@@ -270,6 +297,7 @@ def develop_motif_with_progression_advanced(
     for i in range(total_chords_needed):
         chord_cycle.append(chord_degrees[i % len(chord_degrees)])
     
+    # 处理右手旋律
     motif_notes = list(motif_stream.notes)
     scale_notes = MusicTheoryEngine.get_scale_notes(key, mode)
     developed_notes = apply_development(motif_notes, development_technique, scale_notes)
@@ -282,19 +310,55 @@ def develop_motif_with_progression_advanced(
             stretched_notes.append(new_n)
         developed_notes = stretched_notes
     
-    result_stream = stream.Stream()
+    # 计算原始动机的音域，用于限制右手旋律在2个八度内
+    if developed_notes:
+        pitches = [n.pitch.midi for n in developed_notes]
+        avg_pitch = np.mean(pitches)
+        # 设置音域范围：以平均音高为中心，上下12半音（两个八度）
+        min_allowed = avg_pitch - 12
+        max_allowed = avg_pitch + 12
+        developed_notes = limit_range(developed_notes, min_allowed, max_allowed)
+    
+    # 创建右手Part
+    right_part = stream.Part()
+    right_part.partName = "右手旋律"
+    right_part.id = 'right'
+    right_part.append(instrument.Piano())
+    
+    # 左手Part
+    left_part = stream.Part()
+    left_part.partName = "左手和弦"
+    left_part.id = 'left'
+    left_part.append(instrument.Piano())
+    
+    # 生成乐段
     current_time = 0.0
     chord_index = 0
     while chord_index < len(chord_cycle):
-        current_chord = chord_cycle[chord_index]
-        chord_tones = MusicTheoryEngine.get_chord_tones(current_chord, key, mode)
+        current_chord_degree = chord_cycle[chord_index]
+        chord_tones = MusicTheoryEngine.get_chord_tones(current_chord_degree, key, mode)
         
+        # 左手柱式和弦（根音、三音、五音）
+        # 根音放在C3附近（octave=3），三音和五音根据和弦类型（大三和弦）确定
+        root = MusicTheoryEngine.get_bass_note(current_chord_degree, key, mode, octave=3)
+        # 三音：根音+4半音，但需要确保三音在调内（实际就是和弦内音）
+        third = root + 4  # 大三度
+        fifth = root + 7  # 纯五度
+        # 确保音高在合理范围内
+        chord_notes = [root, third, fifth]
+        left_chord = chord.Chord(chord_notes)
+        left_chord.quarterLength = chord_duration_beats
+        left_chord.offset = current_time
+        left_part.append(left_chord)
+        
+        # 右手旋律：将动机中的音符逐个添加，并调整音高到当前和弦内音
         for n in developed_notes:
             new_n = copy.deepcopy(n)
             new_n.offset = current_time + n.offset
             
             orig_pitch = n.pitch.midi
             if (orig_pitch % 12) not in chord_tones:
+                # 调整到最近的和弦内音
                 best_pitch = orig_pitch
                 min_dist = 12
                 for ct in chord_tones:
@@ -306,18 +370,24 @@ def develop_motif_with_progression_advanced(
                             best_pitch = test_pitch
                 new_n.pitch.midi = best_pitch
             
-            result_stream.append(new_n)
+            right_part.append(new_n)
         
         current_time += chord_duration_beats
         chord_index += 1
     
-    return result_stream
+    # 创建Score并添加两个Part
+    score = stream.Score()
+    score.append(right_part)
+    score.append(left_part)
+    
+    return score
 
 # ==================== 辅助函数 ====================
 
-def get_midi_bytes(melody_stream):
+def get_midi_bytes(score):
+    """将music21 Score转换为MIDI文件字节数据"""
     temp = tempfile.NamedTemporaryFile(suffix='.mid', delete=False)
-    mf = midi.translate.music21ObjectToMidiFile(melody_stream)
+    mf = midi.translate.music21ObjectToMidiFile(score)
     mf.open(temp.name, 'wb')
     mf.write()
     mf.close()
@@ -371,6 +441,7 @@ with st.sidebar:
                 tmp_path = tmp.name
             try:
                 score = converter.parse(tmp_path)
+                # 提取第一个Part作为旋律（假设是单旋律）
                 note_list = list(score.parts[0].flat.getElementsByClass(note.Note))
                 if note_list:
                     melody_stream = stream.Stream(note_list)
@@ -388,7 +459,6 @@ with st.sidebar:
         total_measures = get_total_measures(raw_melodies[0])
         st.caption(f"当前MIDI总小节数: {total_measures}")
         
-        # 新增：调性、调式、风格选择
         key_options = ['C', 'G', 'D', 'A', 'E', 'F', 'Bb', 'Eb', 'Ab']
         selected_key = st.selectbox("调性", key_options, index=0)
         
@@ -402,14 +472,14 @@ with st.sidebar:
         motif_length = st.number_input("动机长度（小节）", min_value=1, max_value=16, value=2)
         target_length = st.number_input("目标乐段长度（小节）", min_value=1, max_value=64, value=18)
         
-        default_prog = "1,4,5,1"  # 默认使用阿拉伯数字
+        default_prog = "1,4,5,1"
         chord_prog_input = st.text_input("和弦进程（罗马数字或阿拉伯数字，逗号或空格分隔）", value=default_prog)
         
         chords_per_bar = st.selectbox("每小节和弦数", [1, 2, 3, 4], index=0)
         dev_technique = st.selectbox("发展手法", ["重复", "倒影", "逆行"], index=0)
         stretch_factor = st.slider("节奏伸缩因子", 0.5, 2.0, 1.0, step=0.1)
         
-        if st.button("生成乐段"):
+        if st.button("生成带伴奏的乐段"):
             if not raw_melodies:
                 st.warning("请先导入MIDI")
             else:
@@ -418,13 +488,13 @@ with st.sidebar:
                 if motif is None or len(motif.notes) == 0:
                     st.error("指定小节内无音符，请调整范围")
                 else:
-                    developed = develop_motif_with_progression_advanced(
+                    developed_score = develop_motif_with_progression_advanced(
                         motif, target_length, chord_prog_input,
                         chords_per_bar, dev_technique, stretch_factor,
                         key=selected_key, mode=selected_mode, beats_per_measure=4.0
                     )
                     new_idx = len(st.session_state.variants)
-                    st.session_state.variants.append(developed)
+                    st.session_state.variants.append(developed_score)
                     st.session_state.variant_meta.append({
                         'type': 'development_advanced',
                         'start_measure': start_measure,
@@ -442,11 +512,9 @@ with st.sidebar:
                     st.session_state.labels_beauty.append(None)
                     st.session_state.labels_feelings.append("")
                     st.session_state.save_indicator.append("")
-                    st.success(f"已生成乐段，作为变体 #{new_idx} 添加")
+                    st.success(f"已生成带伴奏的乐段，作为变体 #{new_idx} 添加")
     else:
         st.info("请先导入MIDI文件")
-
-# 不再有“生成变体”部分
 
 # ==================== 主界面 ====================
 
@@ -529,4 +597,4 @@ if st.session_state.variants:
                 new_s = st.slider("意外度评分", 0.0, 1.0, current_s, key=f"s_{idx}")
                 new_b = st.slider("好听度评分", 0.0, 1.0, current_b, key=f"b_{idx}")
 else:
-    st.info("请在左侧上传MIDI文件，并在动机发展中生成乐段")
+    st.info("请在左侧上传MIDI文件，并在动机发展中生成带伴奏的乐段")
