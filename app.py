@@ -5,10 +5,18 @@ import tempfile
 import random
 import copy
 import base64
+import time
 from music21 import converter, note, stream, midi
 
+# 尝试导入自动刷新组件，若未安装则提示
+try:
+    from streamlit_autorefresh import st_autorefresh
+except ImportError:
+    st.error("请先安装 streamlit-autorefresh：`pip install streamlit-autorefresh`")
+    st.stop()
+
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
-st.title("🎵 玄·律标注原型 (极简播放条版)")
+st.title("🎵 玄·律标注原型 (3秒自动保存版)")
 st.markdown("上传MIDI文件，生成变体，直接点击播放器试听（内置音源）。")
 
 # 初始化session_state
@@ -22,6 +30,18 @@ if 'labels_beauty' not in st.session_state:
     st.session_state.labels_beauty = []
 if 'labels_feelings' not in st.session_state:
     st.session_state.labels_feelings = []
+
+# 新增：记录每个变体的最后修改时间和已保存的值，用于自动保存
+if 'last_modified' not in st.session_state:
+    st.session_state.last_modified = []          # 时间戳列表
+if 'last_saved_surprise' not in st.session_state:
+    st.session_state.last_saved_surprise = []
+if 'last_saved_beauty' not in st.session_state:
+    st.session_state.last_saved_beauty = []
+if 'last_saved_feelings' not in st.session_state:
+    st.session_state.last_saved_feelings = []
+if 'auto_save_enabled' not in st.session_state:
+    st.session_state.auto_save_enabled = True    # 默认开启自动保存
 
 # ---------- 生成变体函数（增强音乐性）----------
 def generate_variant(melody_stream, surprise_strength=0.3):
@@ -163,10 +183,26 @@ with st.sidebar:
             st.session_state.labels_surprise = [None] * len(new_variants)
             st.session_state.labels_beauty = [None] * len(new_variants)
             st.session_state.labels_feelings = [""] * len(new_variants)
+            # 初始化自动保存相关列表
+            st.session_state.last_modified = [time.time()] * len(new_variants)
+            st.session_state.last_saved_surprise = [None] * len(new_variants)
+            st.session_state.last_saved_beauty = [None] * len(new_variants)
+            st.session_state.last_saved_feelings = [""] * len(new_variants)
             st.success(f"已生成 {len(new_variants)} 个变体")
 
 # 主界面：标注（默认展开）
 st.header("3. 标注变体")
+
+# 自动刷新设置（每秒刷新一次，用于检查自动保存条件）
+if st.session_state.auto_save_enabled and st.session_state.variants:
+    refresh_count = st_autorefresh(interval=1000, key="auto_save_refresh")  # 1000ms = 1秒
+
+# 在右侧上方添加自动保存开关
+col_left, col_right = st.columns([1, 1])
+with col_right:
+    auto_save = st.checkbox("自动保存 (3秒无操作后自动保存)", value=st.session_state.auto_save_enabled)
+    st.session_state.auto_save_enabled = auto_save
+
 if st.session_state.variants:
     for idx, var in enumerate(st.session_state.variants[:10]):  # 只显示前10个
         with st.expander(f"变体 #{idx}", expanded=True):
@@ -181,7 +217,7 @@ if st.session_state.variants:
                     <style>
                     .mint-container {
                         background-color: #e6f3da;
-                        padding: 0 12px 12px 12px;  /* 上内边距为0，左右下保留 */
+                        padding: 0 12px 12px 12px;
                         border-radius: 8px;
                         margin-bottom: 8px;
                     }
@@ -227,6 +263,7 @@ if st.session_state.variants:
             
             with right_col:
                 st.markdown("#### 标注")
+                # 确保索引有效
                 if idx < len(st.session_state.labels_surprise):
                     current_s = st.session_state.labels_surprise[idx] if st.session_state.labels_surprise[idx] is not None else 0.5
                 else:
@@ -239,7 +276,9 @@ if st.session_state.variants:
                 new_s = st.slider("意外度", 0.0, 1.0, current_s, key=f"s_{idx}")
                 new_b = st.slider("好听度", 0.0, 1.0, current_b, key=f"b_{idx}")
                 
+                # 手动保存按钮（当自动保存关闭时使用）
                 if st.button("保存标注", key=f"save_{idx}"):
+                    # 确保列表足够长
                     while len(st.session_state.labels_surprise) <= idx:
                         st.session_state.labels_surprise.append(None)
                     while len(st.session_state.labels_beauty) <= idx:
@@ -249,7 +288,90 @@ if st.session_state.variants:
                     
                     st.session_state.labels_surprise[idx] = new_s
                     st.session_state.labels_beauty[idx] = new_b
-                    st.session_state.labels_feelings[idx] = st.session_state[f"f_{idx}"]
-                    st.success("✅ 已保存")
+                    st.session_state.labels_feelings[idx] = new_f
+                    # 更新最后保存的值
+                    st.session_state.last_saved_surprise[idx] = new_s
+                    st.session_state.last_saved_beauty[idx] = new_b
+                    st.session_state.last_saved_feelings[idx] = new_f
+                    st.success("✅ 已手动保存")
+                
+                # 自动保存逻辑：如果自动保存开启，检查是否需要保存
+                if st.session_state.auto_save_enabled:
+                    # 记录当前滑块和感受词的值（来自session_state）
+                    # 注意：new_s, new_b, new_f 是当前滑块的值（通过key获取）
+                    # 我们需要从session_state中获取实际值
+                    current_s_val = st.session_state.get(f"s_{idx}", 0.5)
+                    current_b_val = st.session_state.get(f"b_{idx}", 0.5)
+                    current_f_val = st.session_state.get(f"f_{idx}", "")
+                    
+                    # 检查是否与最后保存的值不同
+                    last_s = st.session_state.last_saved_surprise[idx] if idx < len(st.session_state.last_saved_surprise) else None
+                    last_b = st.session_state.last_saved_beauty[idx] if idx < len(st.session_state.last_saved_beauty) else None
+                    last_f = st.session_state.last_saved_feelings[idx] if idx < len(st.session_state.last_saved_feelings) else ""
+                    
+                    changed = (current_s_val != last_s) or (current_b_val != last_b) or (current_f_val != last_f)
+                    
+                    if changed:
+                        # 更新最后修改时间
+                        if idx < len(st.session_state.last_modified):
+                            st.session_state.last_modified[idx] = time.time()
+                        else:
+                            # 如果列表不够长，扩展
+                            st.session_state.last_modified.extend([time.time()] * (idx + 1 - len(st.session_state.last_modified)))
+                        
+                        # 在自动刷新时检查时间差
+                        # 这个逻辑将在每次刷新时执行，我们在刷新循环中统一处理保存
+                        # 所以这里只更新时间戳，保存由下面的代码在刷新时执行
+                    
+                    # 显示最后修改时间（可选调试）
+                    # st.caption(f"最后修改: {time.strftime('%H:%M:%S', time.localtime(st.session_state.last_modified[idx]))}")
+
+    # 自动保存检查（每秒执行一次）
+    if st.session_state.auto_save_enabled and st.session_state.variants:
+        current_time = time.time()
+        for idx in range(len(st.session_state.variants[:10])):
+            if idx < len(st.session_state.last_modified):
+                time_diff = current_time - st.session_state.last_modified[idx]
+                # 如果超过3秒且数据有变化
+                if time_diff >= 3:
+                    # 获取当前值
+                    current_s_val = st.session_state.get(f"s_{idx}", 0.5)
+                    current_b_val = st.session_state.get(f"b_{idx}", 0.5)
+                    current_f_val = st.session_state.get(f"f_{idx}", "")
+                    
+                    # 获取最后保存的值
+                    last_s = st.session_state.last_saved_surprise[idx] if idx < len(st.session_state.last_saved_surprise) else None
+                    last_b = st.session_state.last_saved_beauty[idx] if idx < len(st.session_state.last_saved_beauty) else None
+                    last_f = st.session_state.last_saved_feelings[idx] if idx < len(st.session_state.last_saved_feelings) else ""
+                    
+                    changed = (current_s_val != last_s) or (current_b_val != last_b) or (current_f_val != last_f)
+                    
+                    if changed:
+                        # 保存到正式列表
+                        while len(st.session_state.labels_surprise) <= idx:
+                            st.session_state.labels_surprise.append(None)
+                        while len(st.session_state.labels_beauty) <= idx:
+                            st.session_state.labels_beauty.append(None)
+                        while len(st.session_state.labels_feelings) <= idx:
+                            st.session_state.labels_feelings.append("")
+                        
+                        st.session_state.labels_surprise[idx] = current_s_val
+                        st.session_state.labels_beauty[idx] = current_b_val
+                        st.session_state.labels_feelings[idx] = current_f_val
+                        
+                        # 更新最后保存的值
+                        while len(st.session_state.last_saved_surprise) <= idx:
+                            st.session_state.last_saved_surprise.append(None)
+                        while len(st.session_state.last_saved_beauty) <= idx:
+                            st.session_state.last_saved_beauty.append(None)
+                        while len(st.session_state.last_saved_feelings) <= idx:
+                            st.session_state.last_saved_feelings.append("")
+                        
+                        st.session_state.last_saved_surprise[idx] = current_s_val
+                        st.session_state.last_saved_beauty[idx] = current_b_val
+                        st.session_state.last_saved_feelings[idx] = current_f_val
+                        
+                        # 显示提示（短暂出现）
+                        st.toast(f"变体 #{idx} 已自动保存", icon="💾")
 else:
     st.info("请在左侧上传MIDI文件并生成变体")
