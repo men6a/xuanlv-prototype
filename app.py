@@ -6,7 +6,7 @@ import random
 from music21 import converter, note, stream, midi
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
-st.title("🎵 玄·律标注原型 (网页部署版)")
+st.title("🎵 玄·律标注原型 (修复版)")
 st.markdown("上传MIDI文件，生成变体，标注意外度和好听度。")
 
 # 初始化session_state
@@ -19,48 +19,33 @@ if 'labels_surprise' not in st.session_state:
 if 'labels_beauty' not in st.session_state:
     st.session_state.labels_beauty = []
 
-# 特征提取函数
-def extract_features(melody_stream):
-    pitches = []
-    durations = []
-    for n in melody_stream.flat.notes:
-        if isinstance(n, note.Note):
-            pitches.append(n.pitch.midi % 12)
-            durations.append(n.quarterLength)
-    if len(pitches) == 0:
-        return None
-    hist, _ = np.histogram(pitches, bins=np.arange(13), density=True)
-    intervals = np.diff(pitches)
-    up = np.sum(intervals > 0) / max(len(intervals),1)
-    down = np.sum(intervals < 0) / max(len(intervals),1)
-    same = np.sum(intervals == 0) / max(len(intervals),1)
-    avg_dur = np.mean(durations) if durations else 0
-    features = np.concatenate([hist, [up, down, same, avg_dur]])
-    return features
-
-# 变体生成函数
+# ---------- 修复后的函数 ----------
 def generate_variant(melody_stream, surprise_strength=0.3):
-    new_stream = melody_stream.flat.copy()
-    notes = list(new_stream.notes)
+    """
+    生成旋律变体：直接复制传入的流，修改其中的音符。
+    避免使用 .flat，因为传入的流已经是扁平的。
+    """
+    # 直接复制整个流
+    new_stream = melody_stream.copy()
+    # 获取所有音符（列表形式）
+    notes = list(new_stream.getElementsByClass(note.Note))
     if not notes:
         return new_stream
     n_changes = max(1, int(len(notes) * surprise_strength))
     for _ in range(n_changes):
         idx = random.randint(0, len(notes)-1)
-        if isinstance(notes[idx], note.Note):
-            delta = random.choice([-2, -1, 1, 2])
-            new_pitch = notes[idx].pitch.midi + delta
-            if 0 <= new_pitch <= 127:
-                notes[idx].pitch.midi = new_pitch
-            if random.random() < 0.3:
-                notes[idx].quarterLength *= random.choice([0.5, 1, 2])
-    new_stream = stream.Stream()
-    for n in notes:
-        new_stream.append(n)
+        # 随机改变音高（上下大二度或半音）
+        delta = random.choice([-2, -1, 1, 2])
+        new_pitch = notes[idx].pitch.midi + delta
+        if 0 <= new_pitch <= 127:
+            notes[idx].pitch.midi = new_pitch
+        # 随机改变时值
+        if random.random() < 0.3:
+            notes[idx].quarterLength *= random.choice([0.5, 1, 2])
     return new_stream
 
-# 生成MIDI下载数据
 def get_midi_data(melody_stream):
+    """将music21流转换为MIDI文件字节数据"""
     temp = tempfile.NamedTemporaryFile(suffix='.mid', delete=False)
     mf = midi.translate.music21ObjectToMidiFile(melody_stream)
     mf.open(temp.name, 'wb')
@@ -71,6 +56,7 @@ def get_midi_data(melody_stream):
     import os
     os.unlink(temp.name)
     return data
+# ---------------------------------
 
 # 侧边栏：上传MIDI
 with st.sidebar:
@@ -85,14 +71,15 @@ with st.sidebar:
                 tmp_path = tmp.name
             try:
                 score = converter.parse(tmp_path)
+                # 提取最高声部的所有音符（已经是扁平的流）
                 melody = score.parts[0].flat.getElementsByClass(note.Note)
                 if len(melody) > 0:
                     raw_melodies.append(melody)
                     st.success(f"已导入: {f.name}")
                 else:
                     st.warning(f"无音符: {f.name}")
-            except:
-                st.error(f"解析失败: {f.name}")
+            except Exception as e:
+                st.error(f"解析失败: {f.name} - {str(e)}")
             import os
             os.unlink(tmp_path)
     
@@ -136,5 +123,4 @@ if st.session_state.variants:
                     st.session_state.labels_beauty[idx] = new_b
                     st.success("已保存")
 else:
-
     st.info("请在左侧上传MIDI文件并生成变体")
