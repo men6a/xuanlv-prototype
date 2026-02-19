@@ -47,6 +47,11 @@ html, body, [class*="css"]  {
     padding: 0.15rem 0.4rem !important;
     line-height: 1.2;
 }
+/* 禁用滑块样式 */
+.disabled-slider .stSlider {
+    opacity: 0.5;
+    pointer-events: none;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -305,7 +310,7 @@ def apply_development_to_pitches(motif_pitches, technique, scale_notes):
 def develop_motif_with_progression_advanced(
     motif_notes, motif_pitches, target_measures, chord_sequence_str,
     chords_per_bar, development_technique, stretch_factor, motif_weight,
-    rhythm_source, density, left_style,  # 新增 left_style
+    rhythm_source, density, left_style,
     key='C', mode='major', style='classical', beats_per_measure=4.0
 ):
     """
@@ -389,7 +394,6 @@ def develop_motif_with_progression_advanced(
             left_chord.volume.velocity = 84
             left_part.append(left_chord)
         elif left_style == "分解":
-            # 简单分解：根-三-五，每个音时值相等
             sub_dur = chord_duration_beats / 3
             for i, p in enumerate(chord_notes):
                 n = note.Note()
@@ -399,10 +403,6 @@ def develop_motif_with_progression_advanced(
                 n.volume.velocity = 84
                 left_part.append(n)
         elif left_style == "琶音":
-            # 琶音：类似分解但音符略有重叠或更紧凑，这里简化为快速分解，每个音时值稍短，留一点间隙
-            # 为简单起见，与分解相同处理，但可加入一点变化（例如每个音时值略短，剩余时值休止）
-            # 这里我们使用与分解相同的逻辑，因为 MIDI 播放时分解和琶音听觉差异可能不大
-            # 为了区分，可以让琶音的音符时值稍短，例如和弦时长的 1/4，然后休止
             sub_dur = chord_duration_beats / 4
             for i, p in enumerate(chord_notes):
                 n = note.Note()
@@ -411,7 +411,6 @@ def develop_motif_with_progression_advanced(
                 n.offset = current_time + i * sub_dur
                 n.volume.velocity = 84
                 left_part.append(n)
-            # 剩余时值休止（不添加音符）
         current_time += chord_duration_beats
     
     score = stream.Score()
@@ -493,33 +492,56 @@ with st.sidebar:
         total_measures_est = get_total_measures(raw_melodies[0])
         st.caption(f"当前MIDI估算总小节数: {total_measures_est}")
         
-        key_options = ['C', 'G', 'D', 'A', 'E', 'F', 'Bb', 'Eb', 'Ab']
-        selected_key = st.selectbox("调性", key_options, index=0)
+        # 调性滑块（索引选择）
+        key_list = ['C', 'G', 'D', 'A', 'E', 'F', 'Bb', 'Eb', 'Ab']
+        key_idx = st.slider("调性", 0, len(key_list)-1, 0, format="%d")
+        selected_key = key_list[key_idx]
+        st.caption(f"当前调性: {selected_key}")
         
-        mode_options = ['major', 'minor', 'harmonic_minor', 'melodic_minor', 'dorian', 'mixolydian']
-        selected_mode = st.selectbox("调式", mode_options, index=0)
+        # 调式滑块（索引选择）
+        mode_list = ['major', 'minor', 'harmonic_minor', 'melodic_minor', 'dorian', 'mixolydian']
+        mode_idx = st.slider("调式", 0, len(mode_list)-1, 0, format="%d")
+        selected_mode = mode_list[mode_idx]
+        st.caption(f"当前调式: {selected_mode}")
         
-        style_options = ['classical', 'jazz', 'folk']
-        selected_style = st.selectbox("风格", style_options, index=0)
+        style_list = ['classical', 'jazz', 'folk']
+        style_idx = st.slider("风格", 0, len(style_list)-1, 0, format="%d")
+        selected_style = style_list[style_idx]
+        st.caption(f"当前风格: {selected_style}")
         
-        start_measure = st.number_input("起始小节", min_value=1, max_value=max(1, total_measures_est), value=1)
-        motif_length = st.number_input("动机长度（小节）", min_value=1, max_value=16, value=2)
-        target_length = st.number_input("目标乐段长度（小节）", min_value=1, max_value=64, value=18)
+        start_measure = st.slider("起始小节", 1, max(1, total_measures_est), 1)
+        motif_length = st.slider("动机长度（小节）", 1, 16, 2)
+        target_length = st.slider("目标乐段长度（小节）", 1, 64, 18)
         
         default_prog = "1,4,5,1"
         chord_prog_input = st.text_input("和弦进程（罗马数字或阿拉伯数字，逗号或空格分隔）", value=default_prog)
         
-        chords_per_bar = st.selectbox("每小节和弦数", [1, 2, 3, 4], index=0)
-        dev_technique = st.selectbox("发展手法", ["重复", "倒影", "逆行"], index=0)
+        chords_per_bar = st.slider("每小节和弦数", 1, 4, 1)
+        dev_technique_list = ["重复", "倒影", "逆行"]
+        dev_technique_idx = st.slider("发展手法", 0, len(dev_technique_list)-1, 0, format="%d")
+        dev_technique = dev_technique_list[dev_technique_idx]
+        
         stretch_factor = st.slider("节奏伸缩因子", 0.5, 2.0, 1.0, step=0.1)
         motif_weight = st.slider("动机保留度 (音高)", 0.0, 1.0, 0.5, step=0.05,
                                  help="0：完全基于和弦生成音高；1：尽可能使用动机音高并调整到和弦内")
         rhythm_source = st.slider("节奏来源", 0.0, 1.0, 0.0, step=0.05,
                                   help="0=使用动机节奏型；1=使用自由均匀节奏（密度由下方滑块决定）")
-        density = st.slider("音符密度 (当节奏自由时)", 0.0, 1.0, 0.5, step=0.05,
-                            help="0=一拍1个八分音符，1=一拍4个八分音符")
-        # 左手演奏法选择
-        left_style = st.selectbox("左手演奏法", ["柱形", "分解", "琶音"], index=0)
+        
+        # 右手密度滑块：当节奏来源>0.5时启用，否则禁用
+        is_free_rhythm = rhythm_source > 0.5
+        if is_free_rhythm:
+            density = st.slider("音符密度 (当节奏自由时)", 0.0, 1.0, 0.5, step=0.05,
+                                help="0=一拍1个八分音符，1=一拍4个八分音符")
+        else:
+            st.markdown('<div class="disabled-slider">', unsafe_allow_html=True)
+            density = st.slider("音符密度 (当节奏自由时)", 0.0, 1.0, 0.5, step=0.05,
+                                help="当前未生效，需将节奏来源设为>0.5", disabled=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        # 左手演奏法滑块
+        left_style_list = ["柱形", "分解", "琶音"]
+        left_style_idx = st.slider("左手演奏法", 0, len(left_style_list)-1, 0, format="%d")
+        left_style = left_style_list[left_style_idx]
         
         if st.button("生成带伴奏的乐段"):
             if not raw_melodies:
