@@ -607,7 +607,8 @@ with st.sidebar:
             help="生成乐段的总小节数"
         )
         
-        default_prog = "1,4,5,1"
+        # 修改和弦进程默认值为 "1,5,6,3,4,1,2,5"
+        default_prog = "1,5,6,3,4,1,2,5"
         chord_prog_input = st.text_input(
             "和弦进程（罗马数字或阿拉伯数字，逗号或空格分隔）", value=default_prog,
             help="输入和弦序列，例如 1,4,5,1 或 I,IV,V,I"
@@ -633,8 +634,9 @@ with st.sidebar:
             help="0：完全基于和弦生成音高；1：尽可能使用动机音高并调整到和弦内"
         )
         
+        # 修改节奏来源默认值为 0.51（自由区域）
         rhythm_source = st.slider(
-            "节奏来源", 0.0, 1.0, 0.0, step=0.05,
+            "节奏来源", 0.0, 1.0, 0.51, step=0.05,
             help="0=使用动机节奏型；1=使用自由节奏（类型由下方节奏倾向滑块决定）"
         )
         
