@@ -67,6 +67,8 @@ if 'labels_feelings' not in st.session_state:
     st.session_state.labels_feelings = []
 if 'save_indicator' not in st.session_state:
     st.session_state.save_indicator = []
+if 'variant_counter' not in st.session_state:
+    st.session_state.variant_counter = 0  # 用于生成连续变体编号
 
 # ==================== 全维度音乐理论规则库 ====================
 
@@ -243,6 +245,7 @@ class MusicTheoryEngine:
         """
         根据和弦和节奏参数生成旋律片段，支持变化音概率
         如果density<=0，返回空列表（无旋律）
+        如果chromatic_prob=0，强制所有音符为调内音（包括动机音高也会被调整）
         """
         if density <= 0:
             return [], prev_pitch, motif_idx
@@ -269,6 +272,8 @@ class MusicTheoryEngine:
             if use_motif:
                 motif_pitch = motif_pitches[motif_idx % len(motif_pitches)]
                 motif_idx += 1
+                # 无论chromatic_prob如何，动机音高都必须调整到调内音
+                # 但可以先调整到和弦内音，再确保调内
                 pitch_val = cls.adjust_to_chord(motif_pitch, chord_tones)
                 pitch_val = cls.adjust_to_scale(pitch_val, scale_notes)
             else:
@@ -439,6 +444,10 @@ def develop_motif_with_progression_advanced(
                         new_n = copy.deepcopy(n)
                         new_n.offset = current_time + n.offset * scale
                         orig_pitch = n.pitch.midi
+                        # 即使使用动机节奏，如果chromatic_prob=0，也要确保音高在调内
+                        if chromatic_prob <= 0:
+                            # 强制调整到最近的调内音
+                            orig_pitch = MusicTheoryEngine.adjust_to_scale(orig_pitch, scale_notes)
                         if (orig_pitch % 12) not in chord_tones:
                             orig_pitch = MusicTheoryEngine.adjust_to_chord(orig_pitch, chord_tones)
                         new_n.pitch.midi = orig_pitch
@@ -698,10 +707,11 @@ with st.sidebar:
             help="0=无旋律音符（全休止），1=每拍4个音符（均分时）。"
         )
         
+        # 变化音概率默认0，添加disabled说明
         chromatic_prob = st.slider(
             "变化音概率", 0.0, 1.0, 0.0, step=0.05,
             disabled=rhythm_source <= 0.5,
-            help="旋律中出现调式外半音的概率。0=全为调内音，1=完全随机半音。"
+            help="旋律中出现调式外半音的概率。0=全为调内音（强制），1=完全随机半音。"
         )
         
         left_style = st.select_slider(
@@ -727,9 +737,14 @@ with st.sidebar:
                         chromatic_prob,
                         key=selected_key, mode=selected_mode, style=selected_style, beats_per_measure=4.0
                     )
-                    # 插入到最前面
+                    # 更新计数器并获取新编号
+                    st.session_state.variant_counter += 1
+                    new_variant_number = st.session_state.variant_counter
+                    
+                    # 插入到最前面，并存储实际编号
                     st.session_state.variants.insert(0, developed_score)
                     st.session_state.variant_meta.insert(0, {
+                        'variant_number': new_variant_number,
                         'type': 'development_advanced',
                         'start_measure': start_measure,
                         'motif_length_beats': motif_length_beats,
@@ -753,7 +768,7 @@ with st.sidebar:
                     st.session_state.labels_beauty.insert(0, None)
                     st.session_state.labels_feelings.insert(0, "")
                     st.session_state.save_indicator.insert(0, "")
-                    st.success(f"已生成带伴奏的乐段，作为变体 #0 添加")
+                    st.success(f"已生成带伴奏的乐段，作为变体 #{new_variant_number} 添加")
     else:
         st.info("请先导入MIDI文件")
 
@@ -765,6 +780,8 @@ if st.session_state.variants:
         meta = st.session_state.variant_meta[idx] if idx < len(st.session_state.variant_meta) else {}
         
         if meta:
+            # 使用保存的变体编号，如果没有则用索引+1作为后备
+            variant_display_num = meta.get('variant_number', idx + 1)
             param_str = (f"动机发展: {meta.get('start_measure')}小节起{meta.get('motif_length_beats',0):.1f}拍 → {meta.get('target_length')}小节 | "
                          f"调性:{meta.get('key','C')} {meta.get('mode','major')} {meta.get('style','classical')} | "
                          f"和弦:{meta.get('chord_prog')} | 密度:{meta.get('chords_per_bar')}/小节 | "
@@ -778,8 +795,9 @@ if st.session_state.variants:
                          f"左手:{meta.get('left_style','柱形')}")
         else:
             param_str = "变体"
+            variant_display_num = idx + 1
         
-        expander_title = f"变体 #{idx} {indicator}  {param_str}"
+        expander_title = f"变体 #{variant_display_num} {indicator}  {param_str}"
         
         with st.expander(expander_title, expanded=True):
             left_col, right_col = st.columns(2)
@@ -807,7 +825,7 @@ if st.session_state.variants:
                     st.download_button(
                         "⬇️ 下载MIDI文件",
                         data=get_midi_bytes(var),
-                        file_name=f"variant_{idx}.mid",
+                        file_name=f"variant_{variant_display_num}.mid",
                         mime="audio/midi",
                         key=f"download_{idx}"
                     )
