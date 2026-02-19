@@ -568,6 +568,7 @@ def generate_preview_score(
 def generate_note_line_canvas(notes_right, notes_left, width=300, height=80):
     """
     生成音符线条的HTML Canvas代码（纯线条，无文字标签）
+    修复力度取值错误
     """
     if not notes_right and not notes_left:
         return "<div style='padding:20px; text-align:center; color:#999;'>无音符数据</div>"
@@ -583,6 +584,9 @@ def generate_note_line_canvas(notes_right, notes_left, width=300, height=80):
     time_scale = width / max_time
     
     def velocity_to_thickness(vel):
+        # 确保vel是有效的数值
+        if vel is None:
+            vel = 80
         return max(1, min(5, 1 + vel / 32))
     
     right_paths = []
@@ -590,7 +594,11 @@ def generate_note_line_canvas(notes_right, notes_left, width=300, height=80):
         x1 = n.offset * time_scale
         x2 = (n.offset + n.quarterLength) * time_scale
         y = 20
-        thickness = velocity_to_thickness(n.volume.velocity if hasattr(n.volume, 'velocity') else 80)
+        # 安全获取力度
+        vel = None
+        if hasattr(n, 'volume') and n.volume is not None:
+            vel = getattr(n.volume, 'velocity', None)
+        thickness = velocity_to_thickness(vel if vel is not None else 80)
         right_paths.append(f"<line x1='{x1}' y1='{y}' x2='{x2}' y2='{y}' stroke='#2d4a1e' stroke-width='{thickness}' />")
     
     left_paths = []
@@ -598,7 +606,10 @@ def generate_note_line_canvas(notes_right, notes_left, width=300, height=80):
         x1 = n.offset * time_scale
         x2 = (n.offset + n.quarterLength) * time_scale
         y = 60
-        thickness = velocity_to_thickness(n.volume.velocity if hasattr(n.volume, 'velocity') else 70)
+        vel = None
+        if hasattr(n, 'volume') and n.volume is not None:
+            vel = getattr(n.volume, 'velocity', None)
+        thickness = velocity_to_thickness(vel if vel is not None else 70)
         left_paths.append(f"<line x1='{x1}' y1='{y}' x2='{x2}' y2='{y}' stroke='#8b5a2b' stroke-width='{thickness}' />")
     
     html = f"""
@@ -677,7 +688,22 @@ def get_midi_player_html(midi_bytes, player_id):
 # ==================== 侧边栏UI（三列布局） ====================
 
 with st.sidebar:
-    st.markdown("### 1. 导入MIDI文件")
+    # ===== 实时预览（放在最顶部） =====
+    if 'raw_melodies' in locals() and raw_melodies:
+        st.markdown("#### 🎼 实时预览")
+        # 生成预览（2小节）
+        right_preview, left_preview = generate_preview_score(
+            raw_melodies[0], start_measure, motif_length_beats,
+            selected_key, selected_mode, selected_style, left_style,
+            chords_per_bar, chord_prog_input,
+            dev_technique, stretch_factor, motif_weight,
+            rhythm_source, dotted_prob, syncopated_prob, density, chromatic_prob,
+            preview_measures=2
+        )
+        canvas_html = generate_note_line_canvas(right_preview, left_preview, width=280, height=80)
+        st.markdown(canvas_html, unsafe_allow_html=True)
+    
+    # ===== 文件上传器（移除标题，仅保留控件） =====
     uploaded_files = st.file_uploader("选择MIDI文件", type=['mid','midi'], accept_multiple_files=True)
     raw_melodies = []
     if uploaded_files:
@@ -818,21 +844,7 @@ with st.sidebar:
                 help="旋律中出现调式外半音的概率。0=全为调内音（强制）"
             )
         
-        # ===== 实时预览音符线条 =====
-        st.markdown("#### 🎼 实时预览")
-        # 生成预览（2小节）
-        right_preview, left_preview = generate_preview_score(
-            raw_melodies[0], start_measure, motif_length_beats,
-            selected_key, selected_mode, selected_style, left_style,
-            chords_per_bar, chord_prog_input,
-            dev_technique, stretch_factor, motif_weight,
-            rhythm_source, dotted_prob, syncopated_prob, density, chromatic_prob,
-            preview_measures=2
-        )
-        canvas_html = generate_note_line_canvas(right_preview, left_preview, width=280, height=80)
-        st.markdown(canvas_html, unsafe_allow_html=True)
-        
-        # 生成按钮放在预览下方
+        # 生成按钮放在三列下方
         if st.button("🎹 生成带伴奏的乐段", use_container_width=True):
             if not raw_melodies:
                 st.warning("请先导入MIDI")
