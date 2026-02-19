@@ -242,8 +242,11 @@ class MusicTheoryEngine:
                                    prev_pitch=None, motif_idx=0):
         """
         根据和弦和节奏参数生成旋律片段，支持变化音概率
-        chromatic_prob: 0-1，随机出现调式外半音的概率
+        如果density<=0，返回空列表（无旋律）
         """
+        if density <= 0:
+            return [], prev_pitch, motif_idx
+        
         style_params = {
             'classical': {'passing': 0.3, 'neighbor': 0.2, 'leap': 0.1},
             'jazz': {'passing': 0.4, 'neighbor': 0.3, 'leap': 0.2},
@@ -259,7 +262,7 @@ class MusicTheoryEngine:
         last_pitch = prev_pitch
         all_scale_notes = list(scale_notes)
         all_chord_tones = list(chord_tones)
-        all_semitones = list(range(12))  # 所有半音
+        all_semitones = list(range(12))
         
         for i, dur in enumerate(rhythm_pattern):
             use_motif = (random.random() < motif_weight) and motif_pitches
@@ -276,7 +279,6 @@ class MusicTheoryEngine:
                     if chromatic_choices:
                         pitch_class = random.choice(chromatic_choices)
                     else:
-                        # 如果没有变化音可选（理论上不可能），退回到音阶内
                         pitch_class = random.choice(all_scale_notes)
                 else:
                     # 正常选音：70%和弦音，30%音阶内非和弦音
@@ -328,10 +330,21 @@ def get_total_measures(notes):
     max_offset = max(n.offset + n.quarterLength for n in notes)
     return int(max_offset // 4) + 1
 
-def extract_motif(notes, start_measure, length_measures):
-    """从音符列表提取动机，返回音符列表和音高序列"""
-    start_offset = (start_measure - 1) * 4.0
-    end_offset = (start_measure + length_measures - 1) * 4.0
+def get_total_beats(notes):
+    """估算总拍数（基于offset）"""
+    if not notes:
+        return 0
+    max_offset = max(n.offset + n.quarterLength for n in notes)
+    return max_offset
+
+def extract_motif_by_beats(notes, start_measure, length_beats):
+    """
+    从音符列表中提取动机，按起始小节和长度（拍）提取
+    start_measure: 起始小节数（1-based）
+    length_beats: 动机长度（拍）
+    """
+    start_offset = (start_measure - 1) * 4.0  # 假设4/4拍
+    end_offset = start_offset + length_beats
     motif_notes = [copy.deepcopy(n) for n in notes if n.offset >= start_offset and n.offset < end_offset]
     if not motif_notes:
         return None, None
@@ -367,12 +380,12 @@ def develop_motif_with_progression_advanced(
     motif_notes, motif_pitches, target_measures, chord_sequence_str,
     chords_per_bar, development_technique, stretch_factor, motif_weight,
     rhythm_source, dotted_prob, syncopated_prob, density, left_style,
-    chromatic_prob,  # 新增参数
+    chromatic_prob,
     key='C', mode='major', style='classical', beats_per_measure=4.0
 ):
     """
-    根据和弦进程生成旋律，混合动机音高
-    chromatic_prob: 变化音概率
+    根据和弦进程生成旋律
+    如果density<=0，右手不生成任何音符（仅左手伴奏）
     """
     if not motif_notes:
         return stream.Score()
@@ -416,31 +429,33 @@ def develop_motif_with_progression_advanced(
     for chord_idx, chord_degree in enumerate(chord_cycle):
         chord_tones = MusicTheoryEngine.get_chord_tones(chord_degree, key, mode)
         
-        if use_motif_rhythm:
-            if motif_notes:
-                total_motif_dur = sum(motif_rhythm)
-                scale = chord_duration_beats / total_motif_dur
-                for n in motif_notes:
+        # 只有当密度>0时才生成右手旋律
+        if density > 0:
+            if use_motif_rhythm:
+                if motif_notes:
+                    total_motif_dur = sum(motif_rhythm)
+                    scale = chord_duration_beats / total_motif_dur
+                    for n in motif_notes:
+                        new_n = copy.deepcopy(n)
+                        new_n.offset = current_time + n.offset * scale
+                        orig_pitch = n.pitch.midi
+                        if (orig_pitch % 12) not in chord_tones:
+                            orig_pitch = MusicTheoryEngine.adjust_to_chord(orig_pitch, chord_tones)
+                        new_n.pitch.midi = orig_pitch
+                        right_part.append(new_n)
+            else:
+                melody_notes, last_pitch, motif_idx = MusicTheoryEngine.generate_melody_for_chord(
+                    chord_duration_beats, chord_tones, scale_notes,
+                    dotted_prob, syncopated_prob, density, style,
+                    developed_pitches, motif_weight, chromatic_prob,
+                    last_pitch, motif_idx
+                )
+                for n in melody_notes:
                     new_n = copy.deepcopy(n)
-                    new_n.offset = current_time + n.offset * scale
-                    orig_pitch = n.pitch.midi
-                    if (orig_pitch % 12) not in chord_tones:
-                        orig_pitch = MusicTheoryEngine.adjust_to_chord(orig_pitch, chord_tones)
-                    new_n.pitch.midi = orig_pitch
+                    new_n.offset = current_time + n.offset
                     right_part.append(new_n)
-        else:
-            melody_notes, last_pitch, motif_idx = MusicTheoryEngine.generate_melody_for_chord(
-                chord_duration_beats, chord_tones, scale_notes,
-                dotted_prob, syncopated_prob, density, style,
-                developed_pitches, motif_weight, chromatic_prob,
-                last_pitch, motif_idx
-            )
-            for n in melody_notes:
-                new_n = copy.deepcopy(n)
-                new_n.offset = current_time + n.offset
-                right_part.append(new_n)
         
-        # 左手伴奏
+        # 左手伴奏始终生成
         chord_notes = MusicTheoryEngine.get_chord_notes(chord_degree, key, mode, octave=3)
         if left_style == "柱形":
             left_chord = chord.Chord(chord_notes)
@@ -560,7 +575,8 @@ with st.sidebar:
     st.markdown("### 2. 动机发展")
     if raw_melodies:
         total_measures_est = get_total_measures(raw_melodies[0])
-        st.caption(f"当前MIDI估算总小节数: {total_measures_est}")
+        total_beats_est = get_total_beats(raw_melodies[0])
+        st.caption(f"当前MIDI估算总小节数: {total_measures_est}, 总拍数: {total_beats_est:.1f}")
         
         key_options = ['C', 'G', 'D', 'A', 'E', 'F', 'Bb', 'Eb', 'Ab']
         selected_key = st.select_slider(
@@ -589,14 +605,18 @@ with st.sidebar:
             help="选择音乐风格，影响旋律中的装饰音概率和和声偏好"
         )
         
+        # 起始小节（小节）
         start_measure = st.slider(
             "起始小节", min_value=1, max_value=max(1, total_measures_est), value=1,
             help="从第几小节开始提取动机"
         )
-        motif_length = st.slider(
-            "动机长度（小节）", min_value=1, max_value=16, value=2,
-            help="动机包含的小节数"
+        # 动机长度（拍）
+        max_motif_beats = max(1, total_beats_est - (start_measure - 1) * 4)
+        motif_length_beats = st.slider(
+            "动机长度（拍）", min_value=1.0, max_value=max_motif_beats, value=8.0, step=0.5,
+            help="动机的长度，以拍为单位"
         )
+        # 目标乐段长度（小节）
         target_length = st.slider(
             "目标乐段长度（小节）", min_value=1, max_value=64, value=18,
             help="生成乐段的总小节数"
@@ -649,7 +669,6 @@ with st.sidebar:
             help="0=无旋律音符（全休止），1=每拍4个音符（均分时）。"
         )
         
-        # 新增变化音概率滑块
         chromatic_prob = st.slider(
             "变化音概率", 0.0, 1.0, 0.0, step=0.05,
             disabled=rhythm_source <= 0.5,
@@ -666,15 +685,17 @@ with st.sidebar:
                 st.warning("请先导入MIDI")
             else:
                 source_notes = raw_melodies[0]
-                motif_notes, motif_pitches = extract_motif(source_notes, start_measure, motif_length)
+                motif_notes, motif_pitches = extract_motif_by_beats(
+                    source_notes, start_measure, motif_length_beats
+                )
                 if not motif_notes:
-                    st.error("指定小节内无音符，请调整范围")
+                    st.error("指定小节和拍数内无音符，请调整范围")
                 else:
                     developed_score = develop_motif_with_progression_advanced(
                         motif_notes, motif_pitches, target_length, chord_prog_input,
                         chords_per_bar, dev_technique, stretch_factor, motif_weight,
                         rhythm_source, dotted_prob, syncopated_prob, density, left_style,
-                        chromatic_prob,  # 传入新参数
+                        chromatic_prob,
                         key=selected_key, mode=selected_mode, style=selected_style, beats_per_measure=4.0
                     )
                     # 插入到最前面
@@ -682,7 +703,7 @@ with st.sidebar:
                     st.session_state.variant_meta.insert(0, {
                         'type': 'development_advanced',
                         'start_measure': start_measure,
-                        'motif_length': motif_length,
+                        'motif_length_beats': motif_length_beats,
                         'target_length': target_length,
                         'chord_prog': chord_prog_input,
                         'chords_per_bar': chords_per_bar,
@@ -715,7 +736,7 @@ if st.session_state.variants:
         meta = st.session_state.variant_meta[idx] if idx < len(st.session_state.variant_meta) else {}
         
         if meta:
-            param_str = (f"动机发展: {meta.get('start_measure')}小节起{meta.get('motif_length')}小节 → {meta.get('target_length')}小节 | "
+            param_str = (f"动机发展: {meta.get('start_measure')}小节起{meta.get('motif_length_beats',0):.1f}拍 → {meta.get('target_length')}小节 | "
                          f"调性:{meta.get('key','C')} {meta.get('mode','major')} {meta.get('style','classical')} | "
                          f"和弦:{meta.get('chord_prog')} | 密度:{meta.get('chords_per_bar')}/小节 | "
                          f"手法:{meta.get('technique')} | 伸缩:{meta.get('stretch')} | "
