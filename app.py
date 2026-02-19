@@ -535,7 +535,7 @@ def develop_motif_with_progression_advanced(
     score.append(left_part)
     return score
 
-# ==================== 音符可视化函数 ====================
+# ==================== 音符可视化函数（简洁版） ====================
 
 def extract_notes_from_score(score):
     """从Score对象中提取左右手音符列表"""
@@ -550,10 +550,11 @@ def extract_notes_from_score(score):
 
 def generate_note_line_canvas(notes_right, notes_left, width=300, height=80):
     """
-    生成音符线条的HTML Canvas代码（纯线条，无文字标签）
+    生成音符线条的HTML Canvas代码（纯线条，无背景无文字）
     """
     if not notes_right and not notes_left:
-        return "<div style='padding:10px; text-align:center; color:#999;'>无音符数据</div>"
+        # 无音符时返回一个透明占位，高度一致但不显示内容
+        return f'<div style="height:{height}px;"></div>'
     
     max_time = 0
     for n in notes_right + notes_left:
@@ -593,15 +594,10 @@ def generate_note_line_canvas(notes_right, notes_left, width=300, height=80):
         left_paths.append(f"<line x1='{x1}' y1='{y}' x2='{x2}' y2='{y}' stroke='#8b5a2b' stroke-width='{thickness}' />")
     
     html = f"""
-    <div style="background-color: white; border-radius: 4px; padding: 5px;">
-        <svg width="{width}" height="{height}" style="background-color: #f8f9fa;">
-            <rect width="{width}" height="{height}" fill="#f8f9fa" />
-            <line x1="0" y1="20" x2="{width}" y2="20" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2,2" />
-            <line x1="0" y1="60" x2="{width}" y2="60" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2,2" />
-            {''.join(right_paths)}
-            {''.join(left_paths)}
-        </svg>
-    </div>
+    <svg width="{width}" height="{height}" style="display: block;">
+        {''.join(right_paths)}
+        {''.join(left_paths)}
+    </svg>
     """
     return html
 
@@ -840,7 +836,7 @@ if st.session_state.variants:
                         help="下载MIDI文件"
                     )
                 
-                # 第二行：音符线条
+                # 第二行：音符线条（简洁版）
                 canvas_html = generate_note_line_canvas(right_notes, left_notes, width=280, height=80)
                 st.markdown(canvas_html, unsafe_allow_html=True)
                 
