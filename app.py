@@ -357,7 +357,7 @@ def apply_development_to_pitches(motif_pitches, technique, scale_notes):
 def develop_motif_with_progression_advanced(
     motif_notes, motif_pitches, target_measures, chord_sequence_str,
     chords_per_bar, development_technique, stretch_factor, motif_weight,
-    rhythm_source, rhythm_tendency, density, left_style,  # 替换 rhythm_type 为 rhythm_tendency
+    rhythm_source, rhythm_tendency, density, left_style,
     key='C', mode='major', style='classical', beats_per_measure=4.0
 ):
     """
@@ -406,32 +406,14 @@ def develop_motif_with_progression_advanced(
     for chord_idx, chord_degree in enumerate(chord_cycle):
         chord_tones = MusicTheoryEngine.get_chord_tones(chord_degree, key, mode)
         
-        # 生成右手旋律
         if use_motif_rhythm:
-            # 使用动机节奏：此时节奏倾向和密度被忽略，直接使用动机的节奏型
-            # 但需要将动机节奏缩放到当前和弦时长
-            total_motif_dur = sum(motif_rhythm)
-            scale = chord_duration_beats / total_motif_dur
-            current_rhythm = [d * scale for d in motif_rhythm]
-            # 旋律生成时，音高仍由 generate_melody_for_chord 处理，但节奏已固定
-            # 为了复用，我们临时将 rhythm_tendency 设为 None，但 generate_melody_for_chord 需要 rhythm_tendency 参数。
-            # 简化：当使用动机节奏时，我们手动生成音符，但不通过 generate_melody_for_chord。
-            # 但为了保持一致性，我们仍调用 generate_melody_for_chord，但传入一个特殊的 rhythm_tendency 值？
-            # 更好的方法：当 use_motif_rhythm 时，我们直接复制动机音符并调整音高到和弦内，而不通过 generate_melody_for_chord。
-            # 我们修改逻辑：如果 use_motif_rhythm，则手动生成旋律。
-            # 为简化，我们这里直接使用 generate_melody_for_chord 并传入一个 dummy 值，但确保 motif_pitches 被使用。
-            # 由于 generate_melody_for_chord 内部会生成节奏，我们需要传入 current_rhythm 作为固定节奏。
-            # 修改 generate_melody_for_chord 接受一个可选的 fixed_rhythm 参数？
-            # 为了快速实现，我们暂时保留原逻辑：当 use_motif_rhythm 时，我们使用固定的节奏型，但为了简化，我们直接使用之前版本的逻辑：复制动机并调整音高。
-            # 此处为了不改变已有结构，我们仍然调用 generate_melody_for_chord，但传入一个固定的节奏型？
-            # 我们将在下一步优化，现在先保持简单：如果 use_motif_rhythm，则跳过旋律生成，直接复制动机音符并调整。
-            # 这样更符合用户期望。
-            # 我们决定：当使用动机节奏时，我们手动处理：
-            if motif_pitches:
-                # 将动机音符复制并调整到当前和弦
+            # 使用动机节奏：复制动机音符并调整音高到当前和弦
+            if motif_notes:
+                total_motif_dur = sum(motif_rhythm)
+                scale = chord_duration_beats / total_motif_dur
                 for n in motif_notes:
                     new_n = copy.deepcopy(n)
-                    new_n.offset = current_time + n.offset * stretch_factor
+                    new_n.offset = current_time + n.offset * scale
                     # 调整音高到和弦内音
                     orig_pitch = n.pitch.midi
                     if (orig_pitch % 12) not in chord_tones:
@@ -439,7 +421,7 @@ def develop_motif_with_progression_advanced(
                     new_n.pitch.midi = orig_pitch
                     right_part.append(new_n)
         else:
-            # 使用自由节奏，由 rhythm_tendency 和 density 控制
+            # 使用自由节奏
             melody_notes, last_pitch, motif_idx = MusicTheoryEngine.generate_melody_for_chord(
                 chord_duration_beats, chord_tones, scale_notes,
                 rhythm_tendency, density, style,
@@ -498,14 +480,22 @@ def get_midi_bytes(score):
     return data
 
 def get_midi_player_html(midi_bytes, player_id):
+    """
+    返回一个内嵌播放器的HTML，并添加互斥播放逻辑：
+    当任何一个播放器开始播放时，自动停止所有其他播放器。
+    """
     import base64
     midi_base64 = base64.b64encode(midi_bytes).decode('utf-8')
     data_url = f"data:audio/midi;base64,{midi_base64}"
+    
+    # 为每个播放器生成唯一的ID
+    player_element_id = f"player_{player_id}"
+    
     html = f"""
     <div style="margin:0; padding:0; background:transparent; line-height:0;">
         <script src="https://cdn.jsdelivr.net/combine/npm/tone@14.7.58,npm/@magenta/music@1.23.1/es6/core.js,npm/focus-visible@5,npm/html-midi-player@1.5.0"></script>
         <midi-player
-            id="player-{player_id}"
+            id="{player_element_id}"
             src="{data_url}"
             sound-font
             style="
@@ -525,6 +515,24 @@ def get_midi_player_html(midi_bytes, player_id):
             ">
         </midi-player>
     </div>
+    <script>
+    (function() {{
+        // 等待 DOM 加载完成
+        const player = document.getElementById('{player_element_id}');
+        if (!player) return;
+        
+        // 添加播放事件监听
+        player.addEventListener('play', function() {{
+            // 停止所有其他播放器
+            const allPlayers = document.querySelectorAll('midi-player');
+            allPlayers.forEach(p => {{
+                if (p !== player && p.stop) {{
+                    p.stop();
+                }}
+            }});
+        }});
+    }})();
+    </script>
     """
     return html
 
@@ -630,7 +638,7 @@ with st.sidebar:
             help="0=使用动机节奏型；1=使用自由节奏（类型由下方节奏倾向滑块决定）"
         )
         
-        # 新增：节奏倾向滑块（附点-混合-切分）
+        # 节奏倾向滑块（附点-混合-切分）
         rhythm_tendency = st.slider(
             "节奏倾向", 0.0, 1.0, 0.5, step=0.05,
             disabled=rhythm_source <= 0.5,
@@ -665,9 +673,9 @@ with st.sidebar:
                         rhythm_source, rhythm_tendency, density, left_style,
                         key=selected_key, mode=selected_mode, style=selected_style, beats_per_measure=4.0
                     )
-                    new_idx = len(st.session_state.variants)
-                    st.session_state.variants.append(developed_score)
-                    st.session_state.variant_meta.append({
+                    # 将新生成的变体插入到列表最前面（索引0）
+                    st.session_state.variants.insert(0, developed_score)
+                    st.session_state.variant_meta.insert(0, {
                         'type': 'development_advanced',
                         'start_measure': start_measure,
                         'motif_length': motif_length,
@@ -685,11 +693,11 @@ with st.sidebar:
                         'mode': selected_mode_display,
                         'style': selected_style
                     })
-                    st.session_state.labels_surprise.append(None)
-                    st.session_state.labels_beauty.append(None)
-                    st.session_state.labels_feelings.append("")
-                    st.session_state.save_indicator.append("")
-                    st.success(f"已生成带伴奏的乐段，作为变体 #{new_idx} 添加")
+                    st.session_state.labels_surprise.insert(0, None)
+                    st.session_state.labels_beauty.insert(0, None)
+                    st.session_state.labels_feelings.insert(0, "")
+                    st.session_state.save_indicator.insert(0, "")
+                    st.success(f"已生成带伴奏的乐段，作为变体 #0 添加")
     else:
         st.info("请先导入MIDI文件")
 
