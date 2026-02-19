@@ -805,8 +805,8 @@ with st.sidebar:
                     'mode': selected_mode_display,
                     'style': selected_style
                 })
-                st.session_state.labels_surprise.insert(0, None)
-                st.session_state.labels_beauty.insert(0, None)
+                st.session_state.labels_surprise.insert(0, 3)  # 默认3星
+                st.session_state.labels_beauty.insert(0, 3)
                 st.session_state.labels_feelings.insert(0, "")
                 st.session_state.save_indicator.insert(0, "")
                 st.success(f"✅ 变体 #{new_num}")
@@ -831,7 +831,7 @@ with st.sidebar:
         density = 0.30
         chromatic_prob = 0.0
 
-# ==================== 主界面 ====================
+# ==================== 主界面（两列布局） ====================
 
 if st.session_state.variants:
     for idx, var in enumerate(st.session_state.variants[:10]):
@@ -855,8 +855,10 @@ if st.session_state.variants:
         expander_title = f"变体 #{variant_display_num} {indicator}  {param_str[:120]}..."
         
         with st.expander(expander_title, expanded=True):
-            # 左列：播放器、线条、评分、感受词；右列暂时留空
+            # 左右两列布局
             left_col, right_col = st.columns(2)
+            
+            # ========== 左列 ==========
             with left_col:
                 # 生成MIDI字节和音符可视化数据
                 midi_bytes = get_midi_bytes(var)
@@ -880,8 +882,10 @@ if st.session_state.variants:
                 # 第二行：音符线条
                 canvas_html = generate_note_line_canvas(right_notes, left_notes, width=280, height=80)
                 st.markdown(canvas_html, unsafe_allow_html=True)
-                
-                # 第三行：五星评分（两个并排）
+            
+            # ========== 右列 ==========
+            with right_col:
+                # 第一行：两个五星评分并排
                 if idx < len(st.session_state.labels_surprise):
                     current_s = st.session_state.labels_surprise[idx] if st.session_state.labels_surprise[idx] is not None else 3
                 else:
@@ -891,25 +895,21 @@ if st.session_state.variants:
                 else:
                     current_b = 3
                 
-                # 转换为整数（兼容旧数据）
-                if isinstance(current_s, float):
-                    current_s = int(round(current_s * 5))
-                if isinstance(current_b, float):
-                    current_b = int(round(current_b * 5))
-                
                 rating_col1, rating_col2 = st.columns(2)
                 with rating_col1:
                     new_s = st.select_slider(
-                        "意外度 ⭐", options=[1,2,3,4,5], value=current_s,
+                        "意外度", options=[1,2,3,4,5], value=current_s,
+                        format_func=lambda x: "⭐" * x,
                         key=f"s_{idx}", help="1=最低意外，5=最高意外"
                     )
                 with rating_col2:
                     new_b = st.select_slider(
-                        "好听度 ⭐", options=[1,2,3,4,5], value=current_b,
+                        "好听度", options=[1,2,3,4,5], value=current_b,
+                        format_func=lambda x: "⭐" * x,
                         key=f"b_{idx}", help="1=最难听，5=最好听"
                     )
                 
-                # 第四行：感受词 + 保存图标按钮
+                # 第二行：感受词 + 保存图标按钮
                 feelings_col, save_col = st.columns([5,1])
                 with feelings_col:
                     if idx < len(st.session_state.labels_feelings):
@@ -925,7 +925,7 @@ if st.session_state.variants:
                         label_visibility="collapsed"
                     )
                 with save_col:
-                    if st.button("💾", key=f"save_left_{idx}", help="保存标注"):
+                    if st.button("💾", key=f"save_right_{idx}", help="保存标注"):
                         # 更新保存的值（评分用整数，感受词用字符串）
                         while len(st.session_state.labels_surprise) <= idx:
                             st.session_state.labels_surprise.append(None)
@@ -941,9 +941,5 @@ if st.session_state.variants:
                         st.session_state.labels_feelings[idx] = new_f
                         st.session_state.save_indicator[idx] = "✅"
                         st.rerun()
-            
-            # 右列暂时留空，可放置未来扩展
-            with right_col:
-                st.empty()
 else:
     st.info("请在左侧上传MIDI文件，并在动机发展中生成带伴奏的乐段")
