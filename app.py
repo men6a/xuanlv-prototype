@@ -48,6 +48,18 @@ html, body, [class*="css"]  {
     padding: 0.15rem 0.4rem !important;
     line-height: 1.2;
 }
+/* 侧边栏三列布局样式 */
+.sidebar-cols {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+.sidebar-col {
+    flex: 1;
+    background-color: #f8f9fa;
+    padding: 0.5rem;
+    border-radius: 4px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -68,7 +80,7 @@ if 'labels_feelings' not in st.session_state:
 if 'save_indicator' not in st.session_state:
     st.session_state.save_indicator = []
 if 'variant_counter' not in st.session_state:
-    st.session_state.variant_counter = 0  # 用于生成连续变体编号
+    st.session_state.variant_counter = 0
 
 # ==================== 全维度音乐理论规则库 ====================
 
@@ -335,13 +347,6 @@ def get_total_measures(notes):
     max_offset = max(n.offset + n.quarterLength for n in notes)
     return int(max_offset // 4) + 1
 
-def get_total_beats(notes):
-    """估算总拍数（基于offset）"""
-    if not notes:
-        return 0
-    max_offset = max(n.offset + n.quarterLength for n in notes)
-    return max_offset
-
 def extract_motif_by_beats(notes, start_measure, length_beats):
     """
     从音符列表中提取动机，按起始小节和长度（拍）提取
@@ -588,7 +593,7 @@ def get_midi_player_html(midi_bytes, player_id):
     """
     return html
 
-# ==================== 侧边栏UI ====================
+# ==================== 侧边栏UI（三列布局） ====================
 
 with st.sidebar:
     st.markdown("### 1. 导入MIDI文件")
@@ -612,114 +617,128 @@ with st.sidebar:
             import os
             os.unlink(tmp_path)
 
-    st.markdown("### 2. 动机发展")
     if raw_melodies:
         total_measures_est = get_total_measures(raw_melodies[0])
         st.caption(f"当前MIDI估算总小节数: {total_measures_est}")
         
-        key_options = ['C', 'G', 'D', 'A', 'E', 'F', 'Bb', 'Eb', 'Ab']
-        selected_key = st.select_slider(
-            "调性", options=key_options, value='C',
-            help="选择乐曲的主调性，影响旋律的和声色彩"
-        )
+        # 创建三列布局
+        col1, col2, col3 = st.columns(3)
         
-        mode_options = [
-            'major', 'minor', 'harmonic_minor', 'melodic_minor', 'dorian', 'mixolydian',
-            'major_pentatonic', 'minor_pentatonic',
-            'gong (宫)', 'shang (商)', 'jue (角)', 'zhi (徵)', 'yu (羽)'
-        ]
-        selected_mode_display = st.select_slider(
-            "调式", options=mode_options, value='major',
-            help="选择调式的类型：西方调式、西方五声调式、中国五声调式（宫商角徵羽）"
-        )
-        mode_map = {
-            'gong (宫)': 'gong', 'shang (商)': 'shang', 'jue (角)': 'jue',
-            'zhi (徵)': 'zhi', 'yu (羽)': 'yu'
-        }
-        selected_mode = mode_map.get(selected_mode_display, selected_mode_display)
+        # === 第1列：基础音乐参数 ===
+        with col1:
+            st.markdown("#### 🎼 基础参数")
+            
+            key_options = ['C', 'G', 'D', 'A', 'E', 'F', 'Bb', 'Eb', 'Ab']
+            selected_key = st.select_slider(
+                "调性", options=key_options, value='C',
+                help="选择乐曲的主调性，影响旋律的和声色彩"
+            )
+            
+            mode_options = [
+                'major', 'minor', 'harmonic_minor', 'melodic_minor', 'dorian', 'mixolydian',
+                'major_pentatonic', 'minor_pentatonic',
+                'gong (宫)', 'shang (商)', 'jue (角)', 'zhi (徵)', 'yu (羽)'
+            ]
+            selected_mode_display = st.select_slider(
+                "调式", options=mode_options, value='major',
+                help="选择调式的类型：西方调式、西方五声调式、中国五声调式（宫商角徵羽）"
+            )
+            mode_map = {
+                'gong (宫)': 'gong', 'shang (商)': 'shang', 'jue (角)': 'jue',
+                'zhi (徵)': 'zhi', 'yu (羽)': 'yu'
+            }
+            selected_mode = mode_map.get(selected_mode_display, selected_mode_display)
+            
+            style_options = ['classical', 'jazz', 'folk']
+            selected_style = st.select_slider(
+                "风格", options=style_options, value='classical',
+                help="选择音乐风格，影响旋律中的装饰音概率和和声偏好"
+            )
+            
+            left_style = st.select_slider(
+                "左手演奏法", options=["柱形", "分解", "琶音"], value="柱形",
+                help="柱形：第一拍八度根音（力度80），第二拍柱形三和弦（力度69）；分解：三连音分解；琶音：四连音快速分解"
+            )
         
-        style_options = ['classical', 'jazz', 'folk']
-        selected_style = st.select_slider(
-            "风格", options=style_options, value='classical',
-            help="选择音乐风格，影响旋律中的装饰音概率和和声偏好"
-        )
+        # === 第2列：动机与结构参数 ===
+        with col2:
+            st.markdown("#### 📐 动机与结构")
+            
+            start_measure = st.slider(
+                "起始小节", min_value=1, max_value=max(1, total_measures_est), value=1,
+                help="从第几小节开始提取动机"
+            )
+            
+            motif_length_beats = st.slider(
+                "动机长度（拍）", min_value=1.0, max_value=32.0, value=8.0, step=0.5,
+                help="动机的长度，以拍为单位（1-32拍）"
+            )
+            
+            target_length = st.slider(
+                "目标乐段长度（小节）", min_value=1, max_value=64, value=18,
+                help="生成乐段的总小节数"
+            )
+            
+            chords_per_bar = st.select_slider(
+                "每小节和弦数", options=[1, 2, 3, 4], value=1,
+                help="每小节内更换和弦的次数"
+            )
+            
+            default_prog = "1,5,6,3,4,1,2,5"
+            chord_prog_input = st.text_input(
+                "和弦进程", value=default_prog,
+                help="输入和弦序列，例如 1,4,5,1 或 I,IV,V,I（逗号或空格分隔）"
+            )
         
-        # 起始小节（小节）
-        start_measure = st.slider(
-            "起始小节", min_value=1, max_value=max(1, total_measures_est), value=1,
-            help="从第几小节开始提取动机"
-        )
-        # 动机长度（拍），固定1-32拍
-        motif_length_beats = st.slider(
-            "动机长度（拍）", min_value=1.0, max_value=32.0, value=8.0, step=0.5,
-            help="动机的长度，以拍为单位（1-32拍）"
-        )
-        # 目标乐段长度（小节）
-        target_length = st.slider(
-            "目标乐段长度（小节）", min_value=1, max_value=64, value=18,
-            help="生成乐段的总小节数"
-        )
+        # === 第3列：旋律生成参数 ===
+        with col3:
+            st.markdown("#### 🎵 旋律生成")
+            
+            dev_technique = st.select_slider(
+                "发展手法", options=["重复", "倒影", "逆行"], value="重复",
+                help="对动机音高序列应用的变形手法"
+            )
+            
+            stretch_factor = st.slider(
+                "节奏伸缩", 0.5, 2.0, 1.0, step=0.1,
+                help="控制动机节奏的伸缩比例，0.5=慢一倍，2.0=快一倍"
+            )
+            
+            motif_weight = st.slider(
+                "动机保留度", 0.0, 1.0, 0.5, step=0.05,
+                help="0：完全基于和弦生成音高；1：尽可能使用动机音高并调整到和弦内"
+            )
+            
+            rhythm_source = st.slider(
+                "节奏来源", 0.0, 1.0, 0.51, step=0.05,
+                help="0=使用动机节奏；1=使用自由节奏（由下方参数决定）"
+            )
+            
+            dotted_prob = st.slider(
+                "附点倾向", 0.0, 1.0, 0.33, step=0.05,
+                disabled=rhythm_source <= 0.5,
+                help="附点节奏的出现概率"
+            )
+            
+            syncopated_prob = st.slider(
+                "切分倾向", 0.0, 1.0, 0.33, step=0.05,
+                disabled=rhythm_source <= 0.5,
+                help="切分节奏的出现概率"
+            )
+            
+            density = st.slider(
+                "音符密度", 0.0, 1.0, 0.5, step=0.05,
+                help="0=无旋律，1=每拍4个音符（均分时）"
+            )
+            
+            chromatic_prob = st.slider(
+                "变化音概率", 0.0, 1.0, 0.0, step=0.05,
+                disabled=rhythm_source <= 0.5,
+                help="旋律中出现调式外半音的概率。0=全为调内音（强制）"
+            )
         
-        default_prog = "1,5,6,3,4,1,2,5"
-        chord_prog_input = st.text_input(
-            "和弦进程（罗马数字或阿拉伯数字，逗号或空格分隔）", value=default_prog,
-            help="输入和弦序列，例如 1,4,5,1 或 I,IV,V,I"
-        )
-        
-        chords_per_bar = st.select_slider(
-            "每小节和弦数", options=[1, 2, 3, 4], value=1,
-            help="每小节内更换和弦的次数"
-        )
-        
-        dev_technique = st.select_slider(
-            "发展手法", options=["重复", "倒影", "逆行"], value="重复",
-            help="对动机音高序列应用的变形手法"
-        )
-        
-        stretch_factor = st.slider(
-            "节奏伸缩因子", 0.5, 2.0, 1.0, step=0.1,
-            help="控制动机节奏的伸缩比例，0.5=慢一倍，2.0=快一倍"
-        )
-        
-        motif_weight = st.slider(
-            "动机保留度 (音高)", 0.0, 1.0, 0.5, step=0.05,
-            help="0：完全基于和弦生成音高；1：尽可能使用动机音高并调整到和弦内"
-        )
-        
-        rhythm_source = st.slider(
-            "节奏来源", 0.0, 1.0, 0.51, step=0.05,
-            help="0=使用动机节奏型；1=使用自由节奏（类型由下方附点和切分倾向决定）"
-        )
-        
-        dotted_prob = st.slider(
-            "附点倾向", 0.0, 1.0, 0.33, step=0.05,
-            disabled=rhythm_source <= 0.5,
-            help="附点节奏的出现概率"
-        )
-        syncopated_prob = st.slider(
-            "切分倾向", 0.0, 1.0, 0.33, step=0.05,
-            disabled=rhythm_source <= 0.5,
-            help="切分节奏的出现概率。剩余概率为均分节奏。"
-        )
-        
-        density = st.slider(
-            "音符密度", 0.0, 1.0, 0.5, step=0.05,
-            help="0=无旋律音符（全休止），1=每拍4个音符（均分时）。"
-        )
-        
-        # 变化音概率默认0，添加disabled说明
-        chromatic_prob = st.slider(
-            "变化音概率", 0.0, 1.0, 0.0, step=0.05,
-            disabled=rhythm_source <= 0.5,
-            help="旋律中出现调式外半音的概率。0=全为调内音（强制），1=完全随机半音。"
-        )
-        
-        left_style = st.select_slider(
-            "左手演奏法", options=["柱形", "分解", "琶音"], value="柱形",
-            help="柱形：第一拍八度根音（力度80），第二拍柱形三和弦（力度69）；分解：三连音分解；琶音：四连音快速分解"
-        )
-        
-        if st.button("生成带伴奏的乐段"):
+        # 生成按钮放在三列下方
+        if st.button("🎹 生成带伴奏的乐段", use_container_width=True):
             if not raw_melodies:
                 st.warning("请先导入MIDI")
             else:
@@ -737,11 +756,11 @@ with st.sidebar:
                         chromatic_prob,
                         key=selected_key, mode=selected_mode, style=selected_style, beats_per_measure=4.0
                     )
-                    # 更新计数器并获取新编号
+                    # 更新计数器
                     st.session_state.variant_counter += 1
                     new_variant_number = st.session_state.variant_counter
                     
-                    # 插入到最前面，并存储实际编号
+                    # 插入到最前面
                     st.session_state.variants.insert(0, developed_score)
                     st.session_state.variant_meta.insert(0, {
                         'variant_number': new_variant_number,
@@ -768,7 +787,7 @@ with st.sidebar:
                     st.session_state.labels_beauty.insert(0, None)
                     st.session_state.labels_feelings.insert(0, "")
                     st.session_state.save_indicator.insert(0, "")
-                    st.success(f"已生成带伴奏的乐段，作为变体 #{new_variant_number} 添加")
+                    st.success(f"✅ 已生成变体 #{new_variant_number}")
     else:
         st.info("请先导入MIDI文件")
 
@@ -780,24 +799,20 @@ if st.session_state.variants:
         meta = st.session_state.variant_meta[idx] if idx < len(st.session_state.variant_meta) else {}
         
         if meta:
-            # 使用保存的变体编号，如果没有则用索引+1作为后备
             variant_display_num = meta.get('variant_number', idx + 1)
-            param_str = (f"动机发展: {meta.get('start_measure')}小节起{meta.get('motif_length_beats',0):.1f}拍 → {meta.get('target_length')}小节 | "
-                         f"调性:{meta.get('key','C')} {meta.get('mode','major')} {meta.get('style','classical')} | "
+            param_str = (f"动机: {meta.get('start_measure')}小节起{meta.get('motif_length_beats',0):.1f}拍 → {meta.get('target_length')}小节 | "
+                         f"{meta.get('key','C')} {meta.get('mode','major')} {meta.get('style','classical')} | "
                          f"和弦:{meta.get('chord_prog')} | 密度:{meta.get('chords_per_bar')}/小节 | "
                          f"手法:{meta.get('technique')} | 伸缩:{meta.get('stretch')} | "
                          f"动机保留:{meta.get('motif_weight',0.5):.2f} | "
-                         f"节奏来源:{'动机' if meta.get('rhythm_source',0)<=0.5 else '自由'} | "
-                         f"附点:{meta.get('dotted_prob',0.33):.2f} | "
-                         f"切分:{meta.get('syncopated_prob',0.33):.2f} | "
-                         f"密度:{meta.get('density',0.5):.2f} | "
-                         f"变化音:{meta.get('chromatic_prob',0.0):.2f} | "
+                         f"节奏:{'动机' if meta.get('rhythm_source',0)<=0.5 else '自由'}(附点:{meta.get('dotted_prob',0.33):.2f}/切分:{meta.get('syncopated_prob',0.33):.2f}) | "
+                         f"密度:{meta.get('density',0.5):.2f} | 变化音:{meta.get('chromatic_prob',0.0):.2f} | "
                          f"左手:{meta.get('left_style','柱形')}")
         else:
             param_str = "变体"
             variant_display_num = idx + 1
         
-        expander_title = f"变体 #{variant_display_num} {indicator}  {param_str}"
+        expander_title = f"变体 #{variant_display_num} {indicator}  {param_str[:120]}..."
         
         with st.expander(expander_title, expanded=True):
             left_col, right_col = st.columns(2)
