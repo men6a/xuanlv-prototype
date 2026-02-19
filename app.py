@@ -211,44 +211,38 @@ class MusicTheoryEngine:
     def generate_rhythm_pattern(cls, chord_duration, dotted_prob, syncopated_prob, density):
         """
         根据附点概率、切分概率和密度生成节奏模式
-        - 如果随机选择附点或切分，返回固定节奏型（忽略密度）
-        - 否则选择均分节奏，根据密度决定音符数（密度0返回空列表表示休止）
         """
         r = random.random()
         if r < dotted_prob:
-            # 附点区域：随机前附点或后附点
             if random.random() < 0.5:
-                # 前附点：2/3 + 1/3
                 part = chord_duration / 3
                 return [part * 2, part]
             else:
-                # 后附点：1/3 + 2/3
                 part = chord_duration / 3
                 return [part, part * 2]
         elif r < dotted_prob + syncopated_prob:
-            # 切分区域：随机前切分或后切分
             if random.random() < 0.5:
-                # 前切分：1/4, 2/4, 1/4
                 part = chord_duration / 4
                 return [part, part * 2, part]
             else:
-                # 后切分：2/4, 1/4, 2/4
                 part = chord_duration / 4
                 return [part * 2, part, part * 2]
         else:
-            # 均分区域：密度决定音符数
             if density <= 0:
-                return []  # 无音符
-            # 密度线性映射到每拍音符数：密度0→0，密度1→4，中间值四舍五入
+                return []
             notes_per_beat = density * 4
             total_notes = max(1, int(round(chord_duration * notes_per_beat)))
             note_duration = chord_duration / total_notes
             return [note_duration] * total_notes
     
     @classmethod
-    def generate_melody_for_chord(cls, chord_duration, chord_tones, scale_notes, dotted_prob, syncopated_prob, density, style, motif_pitches, motif_weight, prev_pitch=None, motif_idx=0):
+    def generate_melody_for_chord(cls, chord_duration, chord_tones, scale_notes, 
+                                   dotted_prob, syncopated_prob, density, style,
+                                   motif_pitches, motif_weight, chromatic_prob,
+                                   prev_pitch=None, motif_idx=0):
         """
-        根据和弦和节奏参数生成旋律片段
+        根据和弦和节奏参数生成旋律片段，支持变化音概率
+        chromatic_prob: 0-1，随机出现调式外半音的概率
         """
         style_params = {
             'classical': {'passing': 0.3, 'neighbor': 0.2, 'leap': 0.1},
@@ -256,14 +250,16 @@ class MusicTheoryEngine:
             'folk': {'passing': 0.2, 'neighbor': 0.2, 'leap': 0.1}
         }.get(style, {'passing': 0.3, 'neighbor': 0.2, 'leap': 0.1})
         
-        # 生成节奏模式
         rhythm_pattern = cls.generate_rhythm_pattern(chord_duration, dotted_prob, syncopated_prob, density)
         if not rhythm_pattern:
-            return [], last_pitch if 'last_pitch' in locals() else prev_pitch, motif_idx
+            return [], prev_pitch, motif_idx
         
         notes = []
         current_time = 0.0
         last_pitch = prev_pitch
+        all_scale_notes = list(scale_notes)
+        all_chord_tones = list(chord_tones)
+        all_semitones = list(range(12))  # 所有半音
         
         for i, dur in enumerate(rhythm_pattern):
             use_motif = (random.random() < motif_weight) and motif_pitches
@@ -273,16 +269,27 @@ class MusicTheoryEngine:
                 pitch_val = cls.adjust_to_chord(motif_pitch, chord_tones)
                 pitch_val = cls.adjust_to_scale(pitch_val, scale_notes)
             else:
-                chord_tones_list = list(chord_tones)
-                if random.random() < 0.7:
-                    pitch_class = random.choice(chord_tones_list)
-                else:
-                    scale_list = list(scale_notes)
-                    non_chord = [p for p in scale_list if p not in chord_tones]
-                    if non_chord:
-                        pitch_class = random.choice(non_chord)
+                # 先判断是否使用变化音
+                if random.random() < chromatic_prob:
+                    # 从所有半音中排除音阶内音
+                    chromatic_choices = [p for p in all_semitones if p not in scale_notes]
+                    if chromatic_choices:
+                        pitch_class = random.choice(chromatic_choices)
                     else:
-                        pitch_class = random.choice(chord_tones_list)
+                        # 如果没有变化音可选（理论上不可能），退回到音阶内
+                        pitch_class = random.choice(all_scale_notes)
+                else:
+                    # 正常选音：70%和弦音，30%音阶内非和弦音
+                    if random.random() < 0.7:
+                        pitch_class = random.choice(all_chord_tones)
+                    else:
+                        non_chord = [p for p in all_scale_notes if p not in chord_tones]
+                        if non_chord:
+                            pitch_class = random.choice(non_chord)
+                        else:
+                            pitch_class = random.choice(all_chord_tones)
+                
+                # 确定八度
                 if last_pitch is not None:
                     best_pitch = None
                     min_dist = 100
@@ -360,13 +367,12 @@ def develop_motif_with_progression_advanced(
     motif_notes, motif_pitches, target_measures, chord_sequence_str,
     chords_per_bar, development_technique, stretch_factor, motif_weight,
     rhythm_source, dotted_prob, syncopated_prob, density, left_style,
+    chromatic_prob,  # 新增参数
     key='C', mode='major', style='classical', beats_per_measure=4.0
 ):
     """
     根据和弦进程生成旋律，混合动机音高
-    dotted_prob: 附点倾向 (0-1)
-    syncopated_prob: 切分倾向 (0-1)
-    density: 音符密度 (0-1)，用于均分节奏
+    chromatic_prob: 变化音概率
     """
     if not motif_notes:
         return stream.Score()
@@ -391,7 +397,6 @@ def develop_motif_with_progression_advanced(
     if stretch_factor != 1.0:
         motif_rhythm = [d * stretch_factor for d in motif_rhythm]
     
-    # 决定是否使用动机节奏（由 rhythm_source 决定）
     use_motif_rhythm = rhythm_source <= 0.5
     
     right_part = stream.Part()
@@ -412,32 +417,30 @@ def develop_motif_with_progression_advanced(
         chord_tones = MusicTheoryEngine.get_chord_tones(chord_degree, key, mode)
         
         if use_motif_rhythm:
-            # 使用动机节奏：复制动机音符并调整音高到当前和弦
             if motif_notes:
                 total_motif_dur = sum(motif_rhythm)
                 scale = chord_duration_beats / total_motif_dur
                 for n in motif_notes:
                     new_n = copy.deepcopy(n)
                     new_n.offset = current_time + n.offset * scale
-                    # 调整音高到和弦内音
                     orig_pitch = n.pitch.midi
                     if (orig_pitch % 12) not in chord_tones:
                         orig_pitch = MusicTheoryEngine.adjust_to_chord(orig_pitch, chord_tones)
                     new_n.pitch.midi = orig_pitch
                     right_part.append(new_n)
         else:
-            # 使用自由节奏，由 dotted_prob, syncopated_prob, density 控制
             melody_notes, last_pitch, motif_idx = MusicTheoryEngine.generate_melody_for_chord(
                 chord_duration_beats, chord_tones, scale_notes,
                 dotted_prob, syncopated_prob, density, style,
-                developed_pitches, motif_weight, last_pitch, motif_idx
+                developed_pitches, motif_weight, chromatic_prob,
+                last_pitch, motif_idx
             )
             for n in melody_notes:
                 new_n = copy.deepcopy(n)
                 new_n.offset = current_time + n.offset
                 right_part.append(new_n)
         
-        # 左手伴奏生成
+        # 左手伴奏
         chord_notes = MusicTheoryEngine.get_chord_notes(chord_degree, key, mode, octave=3)
         if left_style == "柱形":
             left_chord = chord.Chord(chord_notes)
@@ -485,15 +488,10 @@ def get_midi_bytes(score):
     return data
 
 def get_midi_player_html(midi_bytes, player_id):
-    """
-    返回一个内嵌播放器的HTML，并添加互斥播放逻辑
-    """
     import base64
     midi_base64 = base64.b64encode(midi_bytes).decode('utf-8')
     data_url = f"data:audio/midi;base64,{midi_base64}"
-    
     player_element_id = f"player_{player_id}"
-    
     html = f"""
     <div style="margin:0; padding:0; background:transparent; line-height:0;">
         <script src="https://cdn.jsdelivr.net/combine/npm/tone@14.7.58,npm/@magenta/music@1.23.1/es6/core.js,npm/focus-visible@5,npm/html-midi-player@1.5.0"></script>
@@ -635,22 +633,27 @@ with st.sidebar:
             help="0=使用动机节奏型；1=使用自由节奏（类型由下方附点和切分倾向决定）"
         )
         
-        # 新增两个独立滑块
         dotted_prob = st.slider(
             "附点倾向", 0.0, 1.0, 0.33, step=0.05,
             disabled=rhythm_source <= 0.5,
-            help="附点节奏（前附点/后附点）的出现概率"
+            help="附点节奏的出现概率"
         )
         syncopated_prob = st.slider(
             "切分倾向", 0.0, 1.0, 0.33, step=0.05,
             disabled=rhythm_source <= 0.5,
-            help="切分节奏（前切分/后切分）的出现概率。剩余概率为均分节奏。"
+            help="切分节奏的出现概率。剩余概率为均分节奏。"
         )
         
-        # 密度滑块始终生效，无禁用条件
         density = st.slider(
             "音符密度", 0.0, 1.0, 0.5, step=0.05,
-            help="0=无旋律音符（全休止），1=每拍4个音符（均分时），中间值线性映射。附点和切分时此滑块不影响。"
+            help="0=无旋律音符（全休止），1=每拍4个音符（均分时）。"
+        )
+        
+        # 新增变化音概率滑块
+        chromatic_prob = st.slider(
+            "变化音概率", 0.0, 1.0, 0.0, step=0.05,
+            disabled=rhythm_source <= 0.5,
+            help="旋律中出现调式外半音的概率。0=全为调内音，1=完全随机半音。"
         )
         
         left_style = st.select_slider(
@@ -671,6 +674,7 @@ with st.sidebar:
                         motif_notes, motif_pitches, target_length, chord_prog_input,
                         chords_per_bar, dev_technique, stretch_factor, motif_weight,
                         rhythm_source, dotted_prob, syncopated_prob, density, left_style,
+                        chromatic_prob,  # 传入新参数
                         key=selected_key, mode=selected_mode, style=selected_style, beats_per_measure=4.0
                     )
                     # 插入到最前面
@@ -689,6 +693,7 @@ with st.sidebar:
                         'dotted_prob': dotted_prob,
                         'syncopated_prob': syncopated_prob,
                         'density': density,
+                        'chromatic_prob': chromatic_prob,
                         'left_style': left_style,
                         'key': selected_key,
                         'mode': selected_mode_display,
@@ -719,6 +724,7 @@ if st.session_state.variants:
                          f"附点:{meta.get('dotted_prob',0.33):.2f} | "
                          f"切分:{meta.get('syncopated_prob',0.33):.2f} | "
                          f"密度:{meta.get('density',0.5):.2f} | "
+                         f"变化音:{meta.get('chromatic_prob',0.0):.2f} | "
                          f"左手:{meta.get('left_style','柱形')}")
         else:
             param_str = "变体"
