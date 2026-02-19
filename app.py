@@ -92,21 +92,14 @@ html, body, [class*="css"]  {
     width: 40px;
     margin-top: 18px; /* 与输入框顶部对齐 */
 }
-/* 星星按钮样式 */
-.star-button {
-    background: none !important;
-    border: none !important;
-    padding: 0 2px !important;
-    font-size: 1.8rem !important;
-    line-height: 1 !important;
-    cursor: pointer;
-    color: #ffaa00;
-}
-.star-button-gray {
-    color: #cccccc !important;
-}
-.star-button:hover {
-    transform: scale(1.1);
+/* 评分标签样式 */
+.rating-label {
+    font-size: 0.7rem;
+    font-weight: normal;
+    line-height: 2rem;
+    text-align: right;
+    padding-right: 5px;
+    color: #333;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -657,160 +650,6 @@ def generate_note_line_canvas(notes_right, notes_left, width=300, height=80):
     """
     return html
 
-# ==================== 星星评分组件 ====================
-
-def star_rating(label, current_value, key_prefix, help_text):
-    """
-    显示一行星星评分，点击第n颗星设置评分为n
-    返回用户选择的值（通过session_state存储）
-    """
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        st.markdown(f"**{label}**")
-    with col2:
-        # 创建5个按钮，每个对应一颗星
-        stars_cols = st.columns(5)
-        for i in range(5):
-            with stars_cols[i]:
-                # 判断当前星是否应该高亮（i < current_value）
-                star_style = "star-button" if i < current_value else "star-button star-button-gray"
-                if st.button("★", key=f"{key_prefix}_{i}", help=f"{i+1}星", use_container_width=False):
-                    # 点击后更新session_state中的评分
-                    st.session_state[key_prefix] = i + 1
-                    st.rerun()
-                # 用markdown覆盖按钮样式（实际上button可以内联样式，但为了统一用CSS类）
-                # 这里我们使用st.markdown注入样式，但按钮本身可以用类
-                # 我们可以在button中添加参数，但st.button不支持类，所以需要变通
-                # 更好的方式：用html按钮，但为了简化，我们用st.markdown显示星星，并包裹在st.form中？
-                # 考虑到简洁性，我们使用st.button并自定义CSS，但st.button的样式修改有限。
-                # 因此，我们改用st.markdown生成HTML按钮，并处理回调。
-                # 但由于streamlit的回调机制，使用HTML按钮需要额外处理。
-                # 为了简化并确保功能，我们继续使用st.button，并依靠CSS类来改变颜色。
-                # 但st.button不支持自定义类名，所以我们只能用st.markdown生成HTML按钮。
-                # 以下使用st.components.v1.html嵌入一个自定义按钮？可能过于复杂。
-                # 我们重新思考：使用st.form和st.form_submit_button？但也会重载。
-                # 最简单的方案：使用st.columns和st.button，并利用st.session_state更新后rerun。
-                # 但是st.button的样式无法通过类控制，只能全局影响。
-                # 我们可以在CSS中针对所有button设置样式，但无法区分是星按钮。
-                # 所以还是用st.markdown生成HTML按钮。
-        # 由于上面的代码是示意，我们将在实际中使用HTML按钮。
-        # 为了简化，我们改为使用st.select_slider但隐藏滑块，但用户要求无滑块。
-        # 我们决定使用st.radio但只显示星号，但那样会显示所有选项。
-        # 最终，我们采用一个折中：使用st.radio并隐藏未选中选项？不行。
-        # 鉴于时间，我们保留之前的工作，仅修改显示方式。
-
-# 由于上述实现复杂，我们改用之前稳定的st.radio，但用户希望只有星号显示，我们可以通过CSS隐藏未选中选项吗？
-# 但那样无法点击修改。所以必须保留所有星星作为可点击区域。
-
-# 我们将实现一个基于HTML/CSS/JavaScript的自定义星星评分组件，放在st.components.v1.html中。
-# 这样可以实现点击星星更新评分，并且只显示星星，无多余控件。
-# 但需要处理与Python的交互，比较麻烦。
-
-# 考虑到用户可能接受当前版本，我们暂时保持之前的st.radio，但将label放在旁边，星星水平排列。
-# 这是最简洁的折中方案。
-
-# 为了满足“极简”要求，我们将label文字缩小，星星放大，让界面清爽。
-
-# 我们将在右列使用两行，每行一个评分组件，每个组件包含label和5个星星（用radio实现）。
-# radio的选项将隐藏数字，只显示星星。
-
-# 我们最终采用st.radio，并利用CSS让星星变大，label紧凑。
-
-# 实现代码：
-
-def star_rating_radio(label, current_value, key):
-    """
-    使用st.radio实现星星评分
-    """
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        st.markdown(f"**{label}**")
-    with col2:
-        # 使用radio，水平排列，格式化函数返回星号
-        value = st.radio(
-            label="",
-            options=[1,2,3,4,5],
-            index=current_value-1,
-            horizontal=True,
-            format_func=lambda x: "⭐" * x,
-            key=key,
-            label_visibility="collapsed"
-        )
-    return value
-
-# 但radio仍然会显示5个选项，每个选项是一串星号。这其实正是用户需要的：一行五组星星，选中一组后，该组高亮。
-# 只是默认情况下，radio会高亮选中的那个选项，而不是前n个。但对于评分来说，我们希望前n个亮，其余暗。
-# radio无法实现这种效果。所以我们得用自定义组件。
-
-# 经过权衡，我们决定采用以下方案：
-# 使用st.columns放置5个按钮，每个按钮显示一颗星，根据评分决定是否亮起。
-# 按钮的点击通过session_state更新评分。
-
-# 代码实现如下：
-
-def star_rating_buttons(label, current_value, key_prefix):
-    """
-    使用5个按钮实现星星评分，点击第n颗星设置评分为n。
-    """
-    st.markdown(f"**{label}**")
-    cols = st.columns(5)
-    for i in range(5):
-        with cols[i]:
-            # 如果i < current_value，星星亮（黄色），否则灰色
-            star_color = "#FFD700" if i < current_value else "#CCCCCC"
-            # 使用HTML按钮
-            button_html = f"""
-            <button style="background:none; border:none; font-size:2rem; color:{star_color}; cursor:pointer; padding:0;" 
-                    onclick="document.getElementById('star_{key_prefix}_{i}').click();">
-                ★
-            </button>
-            <div style="display:none;">
-                <button id="star_{key_prefix}_{i}" onclick="window.streamlit.setComponentValue({i+1})">hidden</button>
-            </div>
-            """
-            st.markdown(button_html, unsafe_allow_html=True)
-            # 由于无法直接捕获HTML按钮点击，我们放弃此方法。
-
-# 由于时间限制，我们决定保留之前的st.radio，并解释这是目前最简洁的解决方案。
-# 用户如果仍不满意，我们再深入实现自定义组件。
-
-# 鉴于对话已进行多轮，我们提供一个最终版本，使用st.radio，并优化CSS，让星星大小一致，标签紧凑。
-
-# 我们将在最终代码中实现上述方案。
-# 但根据用户最新消息，他要求“极简的界面上只看到两颗黄色星、五颗黄色星”，这可能是希望显示评分结果，而不是交互控件。
-# 如果是只读显示，那很简单，但用户需要点击修改。所以还是需要交互。
-
-# 我决定采用之前实现的star_rating_buttons思路，但用streamlit的button并配合rerun。
-# 虽然按钮样式无法完美控制，但可以通过CSS全局设置。
-
-# 最终，我们采用以下代码：
-
-def star_rating(label, current_value, key_prefix, idx):
-    """
-    使用5个st.button实现星星评分。
-    每个按钮显示一颗星，点击后更新评分。
-    """
-    cols = st.columns([1,5])
-    with cols[0]:
-        st.markdown(f"**{label}**")
-    with cols[1]:
-        star_cols = st.columns(5)
-        for i in range(5):
-            with star_cols[i]:
-                # 根据当前评分决定星星颜色
-                star = "★" if i < current_value else "☆"
-                if st.button(star, key=f"{key_prefix}_{idx}_{i}", help=f"{i+1}星"):
-                    st.session_state[f"{key_prefix}_{idx}"] = i + 1
-                    st.rerun()
-
-# 然后在主界面调用：
-# star_rating("意外度", current_s, "surprise", idx)
-# star_rating("好听度", current_b, "beauty", idx)
-
-# 使用空心星表示未选中，实心星表示选中。前n颗为实心。
-
-# 这样实现了极简的星星评分。
-
 # ==================== 辅助函数 ====================
 
 def get_midi_bytes(score):
@@ -1055,7 +894,6 @@ if st.session_state.variants:
             
             # ========== 右列 ==========
             with right_col:
-                # 第一行：两个五星评分（使用自定义按钮）
                 if idx < len(st.session_state.labels_surprise):
                     current_s = st.session_state.labels_surprise[idx] if st.session_state.labels_surprise[idx] is not None else 3
                 else:
@@ -1065,27 +903,33 @@ if st.session_state.variants:
                 else:
                     current_b = 3
                 
-                # 意外度评分
-                st.markdown("**意外度**")
-                star_cols = st.columns(5)
-                for i in range(5):
-                    with star_cols[i]:
-                        star = "⭐" if i < current_s else "☆"
-                        if st.button(star, key=f"surprise_{idx}_{i}", help=f"{i+1}星"):
-                            st.session_state.labels_surprise[idx] = i + 1
-                            st.rerun()
+                # 第一行：意外度 + 星星
+                col_label, col_stars = st.columns([1, 5])
+                with col_label:
+                    st.markdown('<span class="rating-label">意外度</span>', unsafe_allow_html=True)
+                with col_stars:
+                    star_cols = st.columns(5)
+                    for i in range(5):
+                        with star_cols[i]:
+                            star = "⭐" if i < current_s else "☆"
+                            if st.button(star, key=f"surprise_{idx}_{i}", help=f"{i+1}星"):
+                                st.session_state.labels_surprise[idx] = i + 1
+                                st.rerun()
                 
-                # 好听度评分
-                st.markdown("**好听度**")
-                star_cols2 = st.columns(5)
-                for i in range(5):
-                    with star_cols2[i]:
-                        star = "⭐" if i < current_b else "☆"
-                        if st.button(star, key=f"beauty_{idx}_{i}", help=f"{i+1}星"):
-                            st.session_state.labels_beauty[idx] = i + 1
-                            st.rerun()
+                # 第二行：好听度 + 星星
+                col_label2, col_stars2 = st.columns([1, 5])
+                with col_label2:
+                    st.markdown('<span class="rating-label">好听度</span>', unsafe_allow_html=True)
+                with col_stars2:
+                    star_cols2 = st.columns(5)
+                    for i in range(5):
+                        with star_cols2[i]:
+                            star = "⭐" if i < current_b else "☆"
+                            if st.button(star, key=f"beauty_{idx}_{i}", help=f"{i+1}星"):
+                                st.session_state.labels_beauty[idx] = i + 1
+                                st.rerun()
                 
-                # 第二行：感受词 + 保存图标按钮
+                # 第三行：感受词 + 保存图标按钮
                 feelings_col, save_col = st.columns([5,1])
                 with feelings_col:
                     if idx < len(st.session_state.labels_feelings):
@@ -1102,7 +946,6 @@ if st.session_state.variants:
                     )
                 with save_col:
                     if st.button("💾", key=f"save_right_{idx}", help="保存标注"):
-                        # 更新保存的值（评分用整数，感受词用字符串）
                         while len(st.session_state.labels_surprise) <= idx:
                             st.session_state.labels_surprise.append(None)
                         while len(st.session_state.labels_beauty) <= idx:
@@ -1112,10 +955,9 @@ if st.session_state.variants:
                         while len(st.session_state.save_indicator) <= idx:
                             st.session_state.save_indicator.append("")
                         
-                        # 注意：current_s 和 current_b 可能已经通过按钮更新，但new_f需要从text_area获取
-                        # 但为了简单，直接使用session_state中当前值
-                        # 但text_area的new_f已经绑定
-                        st.session_state.labels_surprise[idx] = current_s  # 可能已更新，但安全起见再赋值
+                        # 从session_state中获取最新的评分（可能已通过按钮更新）
+                        # 但按钮点击会rerun，所以当前值已经是最新
+                        st.session_state.labels_surprise[idx] = current_s
                         st.session_state.labels_beauty[idx] = current_b
                         st.session_state.labels_feelings[idx] = new_f
                         st.session_state.save_indicator[idx] = "✅"
