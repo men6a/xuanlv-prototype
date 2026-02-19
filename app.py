@@ -517,13 +517,12 @@ def develop_motif_with_progression_advanced(
         root = chord_notes[0]
         
         if left_style == "柱形":
-            # 仅根音，持续整个和弦时长
-            n = note.Note()
-            n.pitch.midi = root
-            n.quarterLength = chord_duration_beats
-            n.offset = current_time
-            n.volume.velocity = 80
-            left_part.append(n)
+            # 柱形三和弦（全部发音）
+            left_chord = chord.Chord(chord_notes)
+            left_chord.quarterLength = chord_duration_beats
+            left_chord.offset = current_time
+            left_chord.volume.velocity = 80
+            left_part.append(left_chord)
             
         elif left_style == "分解":
             sub_dur = chord_duration_beats / 3
@@ -551,31 +550,46 @@ def develop_motif_with_progression_advanced(
     score.append(left_part)
     return score
 
-# ==================== 音符可视化函数（混合区域波浪线） ====================
+# ==================== 音符可视化函数（混合区域波浪线，柱形和弦显示根音） ====================
 
 def extract_notes_from_score(score):
-    """从Score对象中提取左右手音符列表"""
+    """
+    从Score对象中提取左右手音符列表
+    对于柱形和弦（Chord），只取其最低音（根音）作为代表，用于画线。
+    """
     right_notes = []
     left_notes = []
     for part in score.parts:
         if part.partName == "右手旋律":
-            right_notes = list(part.flat.getElementsByClass(note.Note))
+            for el in part.flat:
+                if isinstance(el, note.Note):
+                    right_notes.append(el)
         elif part.partName == "左手伴奏":
-            left_notes = list(part.flat.getElementsByClass(note.Note))
+            for el in part.flat:
+                if isinstance(el, note.Note):
+                    left_notes.append(el)
+                elif isinstance(el, chord.Chord):
+                    # 取和弦的最低音（按音高排序的第一个）
+                    pitches = sorted([p.midi for p in el.pitches])
+                    if pitches:
+                        new_n = note.Note()
+                        new_n.pitch.midi = pitches[0]  # 最低音作为根音
+                        new_n.quarterLength = el.quarterLength
+                        new_n.offset = el.offset
+                        new_n.volume.velocity = el.volume.velocity if hasattr(el.volume, 'velocity') else 80
+                        left_notes.append(new_n)
     return right_notes, left_notes
 
 def generate_note_line_canvas(notes_right, notes_left, width=300, height=80):
     """
     生成音符线条的HTML SVG代码（波浪线，Y轴位置反映音高）
     右手：奶绿色 #b8e0b8，左手：浅蓝色 #b0d0ff
-    左右手线条在同一区域内混排（不再分上下两个区域）
+    左右手线条在同一区域内混排
     无背景无文字
     """
     if not notes_right and not notes_left:
-        # 无音符时返回一个透明占位，高度一致但不显示内容
         return f'<div style="height:{height}px;"></div>'
     
-    # 计算所有音符的总时长（用于时间缩放）
     max_time = 0
     for n in notes_right + notes_left:
         end = n.offset + n.quarterLength
@@ -586,8 +600,6 @@ def generate_note_line_canvas(notes_right, notes_left, width=300, height=80):
     
     time_scale = width / max_time
     
-    # 音高映射到Y坐标：将MIDI音高0-127映射到5-75（留点边距）
-    # 高音在上（小Y值），低音在下（大Y值）
     def pitch_to_y(pitch):
         y_min = 5
         y_max = height - 5
@@ -747,11 +759,9 @@ with st.sidebar:
         # === 第3列：旋律生成参数 ===
         with col3:
             st.markdown("#### 🎵 旋律")
-            # 发展手法增加“模进”
             dev_technique = st.select_slider("发展手法", options=["重复", "倒影", "逆行", "模进"], value="重复", help="动机变形")
             stretch_factor = st.slider("节奏伸缩", 0.5, 2.0, 1.0, 0.1, help="0.5=慢一倍，2.0=快一倍")
             motif_weight = st.slider("动机保留", 0.0, 1.0, 0.5, 0.05, help="音高保留度")
-            # 修改默认值
             rhythm_source = st.slider("节奏来源", 0.0, 1.0, 0.55, 0.05, help="0=动机，1=自由")
             dotted_prob = st.slider("附点倾向", 0.0, 1.0, 0.8, 0.05, disabled=rhythm_source<=0.5, help="附点概率")
             syncopated_prob = st.slider("切分倾向", 0.0, 1.0, 0.05, 0.05, disabled=rhythm_source<=0.5, help="切分概率")
@@ -845,6 +855,7 @@ if st.session_state.variants:
         expander_title = f"变体 #{variant_display_num} {indicator}  {param_str[:120]}..."
         
         with st.expander(expander_title, expanded=True):
+            # 左列：播放器、线条、评分、感受词；右列暂时留空
             left_col, right_col = st.columns(2)
             with left_col:
                 # 生成MIDI字节和音符可视化数据
@@ -866,11 +877,39 @@ if st.session_state.variants:
                         help="下载MIDI文件"
                     )
                 
-                # 第二行：音符线条（混合区域波浪线）
+                # 第二行：音符线条
                 canvas_html = generate_note_line_canvas(right_notes, left_notes, width=280, height=80)
                 st.markdown(canvas_html, unsafe_allow_html=True)
                 
-                # 第三行：感受词 + 保存图标按钮
+                # 第三行：五星评分（两个并排）
+                if idx < len(st.session_state.labels_surprise):
+                    current_s = st.session_state.labels_surprise[idx] if st.session_state.labels_surprise[idx] is not None else 3
+                else:
+                    current_s = 3
+                if idx < len(st.session_state.labels_beauty):
+                    current_b = st.session_state.labels_beauty[idx] if st.session_state.labels_beauty[idx] is not None else 3
+                else:
+                    current_b = 3
+                
+                # 转换为整数（兼容旧数据）
+                if isinstance(current_s, float):
+                    current_s = int(round(current_s * 5))
+                if isinstance(current_b, float):
+                    current_b = int(round(current_b * 5))
+                
+                rating_col1, rating_col2 = st.columns(2)
+                with rating_col1:
+                    new_s = st.select_slider(
+                        "意外度 ⭐", options=[1,2,3,4,5], value=current_s,
+                        key=f"s_{idx}", help="1=最低意外，5=最高意外"
+                    )
+                with rating_col2:
+                    new_b = st.select_slider(
+                        "好听度 ⭐", options=[1,2,3,4,5], value=current_b,
+                        key=f"b_{idx}", help="1=最难听，5=最好听"
+                    )
+                
+                # 第四行：感受词 + 保存图标按钮
                 feelings_col, save_col = st.columns([5,1])
                 with feelings_col:
                     if idx < len(st.session_state.labels_feelings):
@@ -887,9 +926,7 @@ if st.session_state.variants:
                     )
                 with save_col:
                     if st.button("💾", key=f"save_left_{idx}", help="保存标注"):
-                        current_s = st.session_state.get(f"s_{idx}", 0.5)
-                        current_b = st.session_state.get(f"b_{idx}", 0.5)
-                        # 更新保存的值
+                        # 更新保存的值（评分用整数，感受词用字符串）
                         while len(st.session_state.labels_surprise) <= idx:
                             st.session_state.labels_surprise.append(None)
                         while len(st.session_state.labels_beauty) <= idx:
@@ -899,22 +936,14 @@ if st.session_state.variants:
                         while len(st.session_state.save_indicator) <= idx:
                             st.session_state.save_indicator.append("")
                         
-                        st.session_state.labels_surprise[idx] = current_s
-                        st.session_state.labels_beauty[idx] = current_b
-                        st.session_state.labels_feelings[idx] = new_f  # 使用输入框的值
+                        st.session_state.labels_surprise[idx] = new_s
+                        st.session_state.labels_beauty[idx] = new_b
+                        st.session_state.labels_feelings[idx] = new_f
                         st.session_state.save_indicator[idx] = "✅"
                         st.rerun()
             
+            # 右列暂时留空，可放置未来扩展
             with right_col:
-                if idx < len(st.session_state.labels_surprise):
-                    current_s = st.session_state.labels_surprise[idx] if st.session_state.labels_surprise[idx] is not None else 0.5
-                else:
-                    current_s = 0.5
-                if idx < len(st.session_state.labels_beauty):
-                    current_b = st.session_state.labels_beauty[idx] if st.session_state.labels_beauty[idx] is not None else 0.5
-                else:
-                    current_b = 0.5
-                new_s = st.slider("意外度评分", 0.0, 1.0, current_s, key=f"s_{idx}")
-                new_b = st.slider("好听度评分", 0.0, 1.0, current_b, key=f"b_{idx}")
+                st.empty()
 else:
     st.info("请在左侧上传MIDI文件，并在动机发展中生成带伴奏的乐段")
