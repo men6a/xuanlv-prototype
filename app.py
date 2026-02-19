@@ -11,18 +11,34 @@ from music21 import converter, note, stream, midi, chord, interval, pitch, meter
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
 
-# 隐藏页面加载遮罩
+# 隐藏页面加载遮罩 + 紧凑侧边栏布局
 st.markdown("""
 <style>
 .stApp::before {
     display: none !important;
 }
-</style>
-""", unsafe_allow_html=True)
-
-# 全局字体调小
-st.markdown("""
-<style>
+/* 侧边栏整体上移 */
+.sidebar .block-container {
+    padding-top: 0 !important;
+}
+.sidebar .stFileUploader {
+    margin-top: 0;
+    padding-top: 0;
+}
+.sidebar .stCaption {
+    margin-top: 0;
+    margin-bottom: 2px;
+}
+.sidebar .markdown-text-container h4 {
+    margin-top: 0;
+    margin-bottom: 2px;
+}
+/* 文件上传器内部紧凑 */
+.sidebar .stFileUploader div[data-testid="stFileUploader"] {
+    margin-top: 0;
+    padding-top: 0;
+}
+/* 全局字体调小 */
 html, body, [class*="css"]  {
     font-size: 0.9rem;
 }
