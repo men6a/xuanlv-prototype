@@ -642,9 +642,13 @@ with st.sidebar:
             help="从第几小节开始提取动机"
         )
         # 动机长度（拍），最大32拍，且不超过文件剩余拍数
-        max_motif_beats = min(32, total_beats_est - (start_measure - 1) * 4)
+        max_motif_beats_calc = total_beats_est - (start_measure - 1) * 4
+        # 确保 max_value 至少为 min_value（1.0）
+        max_motif_beats = max(1.0, min(32.0, max_motif_beats_calc))
+        # 默认值8.0，但限制在范围内
+        default_motif_beats = min(8.0, max_motif_beats)
         motif_length_beats = st.slider(
-            "动机长度（拍）", min_value=1.0, max_value=max(max_motif_beats, 1.0), value=8.0, step=0.5,
+            "动机长度（拍）", min_value=1.0, max_value=max_motif_beats, value=default_motif_beats, step=0.5,
             help="动机的长度，以拍为单位（最大32拍）"
         )
         # 目标乐段长度（小节）
