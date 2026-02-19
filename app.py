@@ -60,6 +60,18 @@ html, body, [class*="css"]  {
     padding: 0.5rem;
     border-radius: 4px;
 }
+/* 音符线条画布样式 */
+.note-canvas-container {
+    background-color: #f0f2f6;
+    border-radius: 8px;
+    padding: 10px;
+    margin: 10px 0;
+}
+.note-canvas-title {
+    font-size: 0.8rem;
+    color: #555;
+    margin-bottom: 5px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -593,6 +605,69 @@ def get_midi_player_html(midi_bytes, player_id):
     """
     return html
 
+def generate_note_line_canvas(notes_right, notes_left, width=300, height=80):
+    """
+    生成音符线条的HTML Canvas代码
+    notes_right: 右手音符列表
+    notes_left: 左手音符列表
+    返回HTML字符串
+    """
+    if not notes_right and not notes_left:
+        return "<div style='padding:20px; text-align:center; color:#999;'>无音符数据</div>"
+    
+    # 计算总时长（最大offset+时值）
+    max_time = 0
+    for n in notes_right + notes_left:
+        end = n.offset + n.quarterLength
+        if end > max_time:
+            max_time = end
+    if max_time <= 0:
+        max_time = 1
+    
+    # 缩放因子：将时间映射到画布宽度
+    time_scale = width / max_time
+    
+    # 力度映射到线条粗细 (1-5像素)
+    def velocity_to_thickness(vel):
+        # vel范围 0-127，映射到 1-5
+        return max(1, min(5, 1 + vel / 32))
+    
+    # 生成右手线条（深绿色）
+    right_paths = []
+    for n in notes_right:
+        x1 = n.offset * time_scale
+        x2 = (n.offset + n.quarterLength) * time_scale
+        y = 20  # 固定Y位置，上下错开
+        thickness = velocity_to_thickness(n.volume.velocity if hasattr(n.volume, 'velocity') else 80)
+        right_paths.append(f"<line x1='{x1}' y1='{y}' x2='{x2}' y2='{y}' stroke='#2d4a1e' stroke-width='{thickness}' />")
+    
+    # 生成左手线条（浅棕色）
+    left_paths = []
+    for n in notes_left:
+        x1 = n.offset * time_scale
+        x2 = (n.offset + n.quarterLength) * time_scale
+        y = 60  # 固定Y位置，上下错开
+        thickness = velocity_to_thickness(n.volume.velocity if hasattr(n.volume, 'velocity') else 70)
+        left_paths.append(f"<line x1='{x1}' y1='{y}' x2='{x2}' y2='{y}' stroke='#8b5a2b' stroke-width='{thickness}' />")
+    
+    # 绘制背景和边框
+    html = f"""
+    <div style="background-color: white; border-radius: 4px; padding: 10px;">
+        <svg width="{width}" height="{height}" style="background-color: #f8f9fa;">
+            <rect width="{width}" height="{height}" fill="#f8f9fa" />
+            <line x1="0" y1="20" x2="{width}" y2="20" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2,2" />
+            <line x1="0" y1="60" x2="{width}" y2="60" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2,2" />
+            {''.join(right_paths)}
+            {''.join(left_paths)}
+        </svg>
+        <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: #666;">
+            <span>右手旋律</span>
+            <span>左手伴奏</span>
+        </div>
+    </div>
+    """
+    return html
+
 # ==================== 侧边栏UI（三列布局） ====================
 
 with st.sidebar:
@@ -620,6 +695,16 @@ with st.sidebar:
     if raw_melodies:
         total_measures_est = get_total_measures(raw_melodies[0])
         st.caption(f"当前MIDI估算总小节数: {total_measures_est}")
+        
+        # ===== 新增：音符线条显示窗 =====
+        st.markdown("#### 🎼 音符线条预览")
+        # 从第一个导入的MIDI中提取左右手（假设单旋律作为右手，没有左手）
+        # 这里简单处理：将导入的旋律作为右手，左手为空
+        right_notes_preview = raw_melodies[0]
+        left_notes_preview = []
+        canvas_html = generate_note_line_canvas(right_notes_preview, left_notes_preview, width=280, height=80)
+        st.markdown(canvas_html, unsafe_allow_html=True)
+        # =================================
         
         # 创建三列布局
         col1, col2, col3 = st.columns(3)
