@@ -395,7 +395,11 @@ def extract_rhythm_pattern(motif_notes):
     return [n.quarterLength for n in motif_notes]
 
 def apply_development_to_pitches(motif_pitches, technique, scale_notes):
-    """对音高序列应用发展手法（倒影、逆行），返回新序列"""
+    """
+    对音高序列应用发展手法，返回新序列
+    手法：重复、倒影、逆行、模进
+    模进：将原始序列移调后拼接，形成模进效果
+    """
     if technique == "重复":
         return motif_pitches[:]
     elif technique == "倒影":
@@ -410,6 +414,20 @@ def apply_development_to_pitches(motif_pitches, technique, scale_notes):
         return new_pitches
     elif technique == "逆行":
         return list(reversed(motif_pitches))
+    elif technique == "模进":
+        if not motif_pitches:
+            return []
+        # 随机选择一个移调音程（纯四度、纯五度、大小三度等）
+        intervals = [2, 4, 5, 7, -2, -4, -5, -7]  # 以半音为单位
+        trans = random.choice(intervals)
+        # 生成移调后的序列
+        transposed = []
+        for p in motif_pitches:
+            new_p = p + trans
+            new_p = MusicTheoryEngine.adjust_to_scale(new_p, scale_notes)
+            transposed.append(new_p)
+        # 拼接原始序列和移调序列，形成模进
+        return motif_pitches + transposed
     else:
         return motif_pitches[:]
 
@@ -494,36 +512,18 @@ def develop_motif_with_progression_advanced(
                     new_n.offset = current_time + n.offset
                     right_part.append(new_n)
         
-        # 左手伴奏生成
+        # 左手伴奏生成（根据left_style）
         chord_notes = MusicTheoryEngine.get_chord_notes(chord_degree, key, mode, octave=3)
         root = chord_notes[0]
         
         if left_style == "柱形":
-            sub_dur = chord_duration_beats / 2
-            octave_notes = []
-            if root - 12 >= 0:
-                octave_notes.append(root - 12)
-            if root + 12 <= 127:
-                octave_notes.append(root + 12)
-            if octave_notes:
-                if len(octave_notes) == 1:
-                    n1 = note.Note()
-                    n1.pitch.midi = octave_notes[0]
-                    n1.quarterLength = sub_dur
-                    n1.offset = current_time
-                    n1.volume.velocity = 80
-                    left_part.append(n1)
-                else:
-                    chord1 = chord.Chord(octave_notes)
-                    chord1.quarterLength = sub_dur
-                    chord1.offset = current_time
-                    chord1.volume.velocity = 80
-                    left_part.append(chord1)
-            chord2 = chord.Chord(chord_notes)
-            chord2.quarterLength = sub_dur
-            chord2.offset = current_time + sub_dur
-            chord2.volume.velocity = 69
-            left_part.append(chord2)
+            # 仅根音，持续整个和弦时长
+            n = note.Note()
+            n.pitch.midi = root
+            n.quarterLength = chord_duration_beats
+            n.offset = current_time
+            n.volume.velocity = 80
+            left_part.append(n)
             
         elif left_style == "分解":
             sub_dur = chord_duration_beats / 3
@@ -747,13 +747,15 @@ with st.sidebar:
         # === 第3列：旋律生成参数 ===
         with col3:
             st.markdown("#### 🎵 旋律")
-            dev_technique = st.select_slider("发展手法", options=["重复","倒影","逆行"], value="重复", help="动机变形")
+            # 发展手法增加“模进”
+            dev_technique = st.select_slider("发展手法", options=["重复", "倒影", "逆行", "模进"], value="重复", help="动机变形")
             stretch_factor = st.slider("节奏伸缩", 0.5, 2.0, 1.0, 0.1, help="0.5=慢一倍，2.0=快一倍")
             motif_weight = st.slider("动机保留", 0.0, 1.0, 0.5, 0.05, help="音高保留度")
-            rhythm_source = st.slider("节奏来源", 0.0, 1.0, 0.51, 0.05, help="0=动机，1=自由")
-            dotted_prob = st.slider("附点倾向", 0.0, 1.0, 0.33, 0.05, disabled=rhythm_source<=0.5, help="附点概率")
-            syncopated_prob = st.slider("切分倾向", 0.0, 1.0, 0.33, 0.05, disabled=rhythm_source<=0.5, help="切分概率")
-            density = st.slider("音符密度", 0.0, 1.0, 0.5, 0.05, help="0=无，1=每拍4个")
+            # 修改默认值
+            rhythm_source = st.slider("节奏来源", 0.0, 1.0, 0.55, 0.05, help="0=动机，1=自由")
+            dotted_prob = st.slider("附点倾向", 0.0, 1.0, 0.8, 0.05, disabled=rhythm_source<=0.5, help="附点概率")
+            syncopated_prob = st.slider("切分倾向", 0.0, 1.0, 0.05, 0.05, disabled=rhythm_source<=0.5, help="切分概率")
+            density = st.slider("音符密度", 0.0, 1.0, 0.30, 0.05, help="0=无，1=每拍4个")
             chromatic_prob = st.slider("变化音概率", 0.0, 1.0, 0.0, 0.05, disabled=rhythm_source<=0.5, help="0=全调内")
         
         # 生成按钮
@@ -813,10 +815,10 @@ with st.sidebar:
         dev_technique = "重复"
         stretch_factor = 1.0
         motif_weight = 0.5
-        rhythm_source = 0.51
-        dotted_prob = 0.33
-        syncopated_prob = 0.33
-        density = 0.5
+        rhythm_source = 0.55
+        dotted_prob = 0.8
+        syncopated_prob = 0.05
+        density = 0.30
         chromatic_prob = 0.0
 
 # ==================== 主界面 ====================
