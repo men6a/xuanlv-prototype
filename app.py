@@ -551,6 +551,7 @@ def extract_notes_from_score(score):
 def generate_note_line_canvas(notes_right, notes_left, width=300, height=80):
     """
     生成音符线条的HTML Canvas代码（纯线条，无背景无文字）
+    右手：奶绿色 #b8e0b8，左手：浅蓝色 #b0d0ff
     """
     if not notes_right and not notes_left:
         # 无音符时返回一个透明占位，高度一致但不显示内容
@@ -580,7 +581,7 @@ def generate_note_line_canvas(notes_right, notes_left, width=300, height=80):
         if hasattr(n, 'volume') and n.volume is not None:
             vel = getattr(n.volume, 'velocity', None)
         thickness = velocity_to_thickness(vel if vel is not None else 80)
-        right_paths.append(f"<line x1='{x1}' y1='{y}' x2='{x2}' y2='{y}' stroke='#2d4a1e' stroke-width='{thickness}' />")
+        right_paths.append(f"<line x1='{x1}' y1='{y}' x2='{x2}' y2='{y}' stroke='#b8e0b8' stroke-width='{thickness}' />")
     
     left_paths = []
     for n in notes_left:
@@ -591,7 +592,7 @@ def generate_note_line_canvas(notes_right, notes_left, width=300, height=80):
         if hasattr(n, 'volume') and n.volume is not None:
             vel = getattr(n.volume, 'velocity', None)
         thickness = velocity_to_thickness(vel if vel is not None else 70)
-        left_paths.append(f"<line x1='{x1}' y1='{y}' x2='{x2}' y2='{y}' stroke='#8b5a2b' stroke-width='{thickness}' />")
+        left_paths.append(f"<line x1='{x1}' y1='{y}' x2='{x2}' y2='{y}' stroke='#b0d0ff' stroke-width='{thickness}' />")
     
     html = f"""
     <svg width="{width}" height="{height}" style="display: block;">
