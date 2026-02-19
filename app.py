@@ -11,7 +11,7 @@ from music21 import converter, note, stream, midi, chord, interval, pitch, meter
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
 
-# 隐藏页面加载遮罩 + 紧凑侧边栏布局
+# 隐藏页面加载遮罩 + 紧凑侧边栏布局 + 星星样式
 st.markdown("""
 <style>
 .stApp::before {
@@ -101,6 +101,37 @@ html, body, [class*="css"]  {
     padding-right: 5px;
     color: #333;
 }
+/* 星星按钮容器 */
+.star-rating {
+    display: flex;
+    align-items: center;
+}
+.star-rating .stHorizontalBlock {
+    gap: 0 !important;
+}
+.star-rating .stButton button {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    font-size: 1.6rem !important;
+    line-height: 1 !important;
+    min-width: auto !important;
+    width: auto !important;
+    color: #FFD700; /* 星星颜色（黄色） */
+}
+.star-rating .stButton button:focus {
+    outline: none !important;
+    box-shadow: none !important;
+}
+/* 空心星颜色 */
+.star-rating .stButton button .star-empty {
+    color: #ccc;
+}
+/* 注意：星星字符颜色通过按钮内容控制，但按钮本身颜色需要单独设置 */
+/* 我们无法通过CSS直接控制按钮内字符颜色，因为按钮内容是文本。但可以通过按钮的文本颜色继承 */
+/* 这里使用全局按钮文本颜色，但实心星和空心星我们通过按钮内容的不同字符（⭐和☆）来区分，所以颜色分别设置可能不行。但⭐和☆本身就有颜色差异，无需额外设置。如果希望灰色，可以将按钮颜色设为灰色，但会影响所有按钮。所以我们不设置按钮颜色，保留默认。 */
 </style>
 """, unsafe_allow_html=True)
 
@@ -908,6 +939,8 @@ if st.session_state.variants:
                 with col_label:
                     st.markdown('<span class="rating-label">意外度</span>', unsafe_allow_html=True)
                 with col_stars:
+                    # 包裹星星的容器，应用 star-rating 类
+                    st.markdown('<div class="star-rating">', unsafe_allow_html=True)
                     star_cols = st.columns(5)
                     for i in range(5):
                         with star_cols[i]:
@@ -915,12 +948,14 @@ if st.session_state.variants:
                             if st.button(star, key=f"surprise_{idx}_{i}", help=f"{i+1}星"):
                                 st.session_state.labels_surprise[idx] = i + 1
                                 st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
                 
                 # 第二行：好听度 + 星星
                 col_label2, col_stars2 = st.columns([1, 5])
                 with col_label2:
                     st.markdown('<span class="rating-label">好听度</span>', unsafe_allow_html=True)
                 with col_stars2:
+                    st.markdown('<div class="star-rating">', unsafe_allow_html=True)
                     star_cols2 = st.columns(5)
                     for i in range(5):
                         with star_cols2[i]:
@@ -928,6 +963,7 @@ if st.session_state.variants:
                             if st.button(star, key=f"beauty_{idx}_{i}", help=f"{i+1}星"):
                                 st.session_state.labels_beauty[idx] = i + 1
                                 st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
                 
                 # 第三行：感受词 + 保存图标按钮
                 feelings_col, save_col = st.columns([5,1])
@@ -956,7 +992,6 @@ if st.session_state.variants:
                             st.session_state.save_indicator.append("")
                         
                         # 从session_state中获取最新的评分（可能已通过按钮更新）
-                        # 但按钮点击会rerun，所以当前值已经是最新
                         st.session_state.labels_surprise[idx] = current_s
                         st.session_state.labels_beauty[idx] = current_b
                         st.session_state.labels_feelings[idx] = new_f
