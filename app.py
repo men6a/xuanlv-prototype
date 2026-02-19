@@ -60,17 +60,12 @@ html, body, [class*="css"]  {
     padding: 0.5rem;
     border-radius: 4px;
 }
-/* 音符线条画布样式 */
+/* 音符线条画布容器 */
 .note-canvas-container {
     background-color: #f0f2f6;
     border-radius: 8px;
     padding: 10px;
     margin: 10px 0;
-}
-.note-canvas-title {
-    font-size: 0.8rem;
-    color: #555;
-    margin-bottom: 5px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -296,21 +291,17 @@ class MusicTheoryEngine:
             if use_motif:
                 motif_pitch = motif_pitches[motif_idx % len(motif_pitches)]
                 motif_idx += 1
-                # 无论chromatic_prob如何，动机音高都必须调整到调内音
-                # 但可以先调整到和弦内音，再确保调内
                 pitch_val = cls.adjust_to_chord(motif_pitch, chord_tones)
                 pitch_val = cls.adjust_to_scale(pitch_val, scale_notes)
             else:
                 # 先判断是否使用变化音
                 if random.random() < chromatic_prob:
-                    # 从所有半音中排除音阶内音
                     chromatic_choices = [p for p in all_semitones if p not in scale_notes]
                     if chromatic_choices:
                         pitch_class = random.choice(chromatic_choices)
                     else:
                         pitch_class = random.choice(all_scale_notes)
                 else:
-                    # 正常选音：70%和弦音，30%音阶内非和弦音
                     if random.random() < 0.7:
                         pitch_class = random.choice(all_chord_tones)
                     else:
@@ -320,7 +311,6 @@ class MusicTheoryEngine:
                         else:
                             pitch_class = random.choice(all_chord_tones)
                 
-                # 确定八度
                 if last_pitch is not None:
                     best_pitch = None
                     min_dist = 100
@@ -408,6 +398,7 @@ def develop_motif_with_progression_advanced(
     """
     根据和弦进程生成旋律
     如果density<=0，右手不生成任何音符（仅左手伴奏）
+    返回Score对象
     """
     if not motif_notes:
         return stream.Score()
@@ -451,7 +442,6 @@ def develop_motif_with_progression_advanced(
     for chord_idx, chord_degree in enumerate(chord_cycle):
         chord_tones = MusicTheoryEngine.get_chord_tones(chord_degree, key, mode)
         
-        # 右手旋律生成（仅当密度>0时）
         if density > 0:
             if use_motif_rhythm:
                 if motif_notes:
@@ -461,9 +451,7 @@ def develop_motif_with_progression_advanced(
                         new_n = copy.deepcopy(n)
                         new_n.offset = current_time + n.offset * scale
                         orig_pitch = n.pitch.midi
-                        # 即使使用动机节奏，如果chromatic_prob=0，也要确保音高在调内
                         if chromatic_prob <= 0:
-                            # 强制调整到最近的调内音
                             orig_pitch = MusicTheoryEngine.adjust_to_scale(orig_pitch, scale_notes)
                         if (orig_pitch % 12) not in chord_tones:
                             orig_pitch = MusicTheoryEngine.adjust_to_chord(orig_pitch, chord_tones)
@@ -481,15 +469,12 @@ def develop_motif_with_progression_advanced(
                     new_n.offset = current_time + n.offset
                     right_part.append(new_n)
         
-        # 左手伴奏生成（根据left_style）
+        # 左手伴奏生成
         chord_notes = MusicTheoryEngine.get_chord_notes(chord_degree, key, mode, octave=3)
-        root = chord_notes[0]  # 根音
+        root = chord_notes[0]
         
         if left_style == "柱形":
-            # 两拍模式：第一拍八度根音，第二拍柱形三和弦
-            # 将和弦时长平分
             sub_dur = chord_duration_beats / 2
-            # 第一拍：八度根音（根音的低八度和高八度，如果可用）
             octave_notes = []
             if root - 12 >= 0:
                 octave_notes.append(root - 12)
@@ -497,7 +482,6 @@ def develop_motif_with_progression_advanced(
                 octave_notes.append(root + 12)
             if octave_notes:
                 if len(octave_notes) == 1:
-                    # 如果只有一个八度音，则作为单音
                     n1 = note.Note()
                     n1.pitch.midi = octave_notes[0]
                     n1.quarterLength = sub_dur
@@ -505,14 +489,11 @@ def develop_motif_with_progression_advanced(
                     n1.volume.velocity = 80
                     left_part.append(n1)
                 else:
-                    # 两个八度音同时发音
                     chord1 = chord.Chord(octave_notes)
                     chord1.quarterLength = sub_dur
                     chord1.offset = current_time
                     chord1.volume.velocity = 80
                     left_part.append(chord1)
-            
-            # 第二拍：柱形三和弦
             chord2 = chord.Chord(chord_notes)
             chord2.quarterLength = sub_dur
             chord2.offset = current_time + sub_dur
@@ -544,6 +525,94 @@ def develop_motif_with_progression_advanced(
     score.append(right_part)
     score.append(left_part)
     return score
+
+# ==================== 预览生成函数 ====================
+
+def generate_preview_score(
+    source_notes, start_measure, motif_length_beats,
+    key, mode, style, left_style,
+    chords_per_bar, chord_prog_input,
+    dev_technique, stretch_factor, motif_weight,
+    rhythm_source, dotted_prob, syncopated_prob, density, chromatic_prob,
+    preview_measures=2  # 预览只生成2小节
+):
+    """
+    根据当前滑块参数生成短小的预览乐段，用于实时显示音符线条
+    返回 (right_notes, left_notes) 两个音符列表
+    """
+    # 提取动机
+    motif_notes, motif_pitches = extract_motif_by_beats(source_notes, start_measure, motif_length_beats)
+    if not motif_notes:
+        return [], []
+    
+    # 生成预览乐段（使用 preview_measures 而不是 target_length）
+    score = develop_motif_with_progression_advanced(
+        motif_notes, motif_pitches, preview_measures, chord_prog_input,
+        chords_per_bar, dev_technique, stretch_factor, motif_weight,
+        rhythm_source, dotted_prob, syncopated_prob, density, left_style,
+        chromatic_prob,
+        key=key, mode=mode, style=style, beats_per_measure=4.0
+    )
+    
+    # 从score中提取左右手音符
+    right_notes = []
+    left_notes = []
+    for part in score.parts:
+        if part.partName == "右手旋律":
+            right_notes = list(part.flat.getElementsByClass(note.Note))
+        elif part.partName == "左手伴奏":
+            left_notes = list(part.flat.getElementsByClass(note.Note))
+    
+    return right_notes, left_notes
+
+def generate_note_line_canvas(notes_right, notes_left, width=300, height=80):
+    """
+    生成音符线条的HTML Canvas代码（纯线条，无文字标签）
+    """
+    if not notes_right and not notes_left:
+        return "<div style='padding:20px; text-align:center; color:#999;'>无音符数据</div>"
+    
+    max_time = 0
+    for n in notes_right + notes_left:
+        end = n.offset + n.quarterLength
+        if end > max_time:
+            max_time = end
+    if max_time <= 0:
+        max_time = 1
+    
+    time_scale = width / max_time
+    
+    def velocity_to_thickness(vel):
+        return max(1, min(5, 1 + vel / 32))
+    
+    right_paths = []
+    for n in notes_right:
+        x1 = n.offset * time_scale
+        x2 = (n.offset + n.quarterLength) * time_scale
+        y = 20
+        thickness = velocity_to_thickness(n.volume.velocity if hasattr(n.volume, 'velocity') else 80)
+        right_paths.append(f"<line x1='{x1}' y1='{y}' x2='{x2}' y2='{y}' stroke='#2d4a1e' stroke-width='{thickness}' />")
+    
+    left_paths = []
+    for n in notes_left:
+        x1 = n.offset * time_scale
+        x2 = (n.offset + n.quarterLength) * time_scale
+        y = 60
+        thickness = velocity_to_thickness(n.volume.velocity if hasattr(n.volume, 'velocity') else 70)
+        left_paths.append(f"<line x1='{x1}' y1='{y}' x2='{x2}' y2='{y}' stroke='#8b5a2b' stroke-width='{thickness}' />")
+    
+    html = f"""
+    <div style="background-color: white; border-radius: 4px; padding: 10px;">
+        <svg width="{width}" height="{height}" style="background-color: #f8f9fa;">
+            <rect width="{width}" height="{height}" fill="#f8f9fa" />
+            <line x1="0" y1="20" x2="{width}" y2="20" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2,2" />
+            <line x1="0" y1="60" x2="{width}" y2="60" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2,2" />
+            {''.join(right_paths)}
+            {''.join(left_paths)}
+        </svg>
+    </div>
+    """
+    return html
 
 # ==================== 辅助函数 ====================
 
@@ -605,69 +674,6 @@ def get_midi_player_html(midi_bytes, player_id):
     """
     return html
 
-def generate_note_line_canvas(notes_right, notes_left, width=300, height=80):
-    """
-    生成音符线条的HTML Canvas代码
-    notes_right: 右手音符列表
-    notes_left: 左手音符列表
-    返回HTML字符串
-    """
-    if not notes_right and not notes_left:
-        return "<div style='padding:20px; text-align:center; color:#999;'>无音符数据</div>"
-    
-    # 计算总时长（最大offset+时值）
-    max_time = 0
-    for n in notes_right + notes_left:
-        end = n.offset + n.quarterLength
-        if end > max_time:
-            max_time = end
-    if max_time <= 0:
-        max_time = 1
-    
-    # 缩放因子：将时间映射到画布宽度
-    time_scale = width / max_time
-    
-    # 力度映射到线条粗细 (1-5像素)
-    def velocity_to_thickness(vel):
-        # vel范围 0-127，映射到 1-5
-        return max(1, min(5, 1 + vel / 32))
-    
-    # 生成右手线条（深绿色）
-    right_paths = []
-    for n in notes_right:
-        x1 = n.offset * time_scale
-        x2 = (n.offset + n.quarterLength) * time_scale
-        y = 20  # 固定Y位置，上下错开
-        thickness = velocity_to_thickness(n.volume.velocity if hasattr(n.volume, 'velocity') else 80)
-        right_paths.append(f"<line x1='{x1}' y1='{y}' x2='{x2}' y2='{y}' stroke='#2d4a1e' stroke-width='{thickness}' />")
-    
-    # 生成左手线条（浅棕色）
-    left_paths = []
-    for n in notes_left:
-        x1 = n.offset * time_scale
-        x2 = (n.offset + n.quarterLength) * time_scale
-        y = 60  # 固定Y位置，上下错开
-        thickness = velocity_to_thickness(n.volume.velocity if hasattr(n.volume, 'velocity') else 70)
-        left_paths.append(f"<line x1='{x1}' y1='{y}' x2='{x2}' y2='{y}' stroke='#8b5a2b' stroke-width='{thickness}' />")
-    
-    # 绘制背景和边框
-    html = f"""
-    <div style="background-color: white; border-radius: 4px; padding: 10px;">
-        <svg width="{width}" height="{height}" style="background-color: #f8f9fa;">
-            <rect width="{width}" height="{height}" fill="#f8f9fa" />
-            <line x1="0" y1="20" x2="{width}" y2="20" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2,2" />
-            <line x1="0" y1="60" x2="{width}" y2="60" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2,2" />
-            {''.join(right_paths)}
-            {''.join(left_paths)}
-        </svg>
-        <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: #666;">
-            <span>右手旋律</span>
-            <span>左手伴奏</span>
-        </div>
-    </div>
-    """
-    return html
-
 # ==================== 侧边栏UI（三列布局） ====================
 
 with st.sidebar:
@@ -695,16 +701,6 @@ with st.sidebar:
     if raw_melodies:
         total_measures_est = get_total_measures(raw_melodies[0])
         st.caption(f"当前MIDI估算总小节数: {total_measures_est}")
-        
-        # ===== 新增：音符线条显示窗 =====
-        st.markdown("#### 🎼 音符线条预览")
-        # 从第一个导入的MIDI中提取左右手（假设单旋律作为右手，没有左手）
-        # 这里简单处理：将导入的旋律作为右手，左手为空
-        right_notes_preview = raw_melodies[0]
-        left_notes_preview = []
-        canvas_html = generate_note_line_canvas(right_notes_preview, left_notes_preview, width=280, height=80)
-        st.markdown(canvas_html, unsafe_allow_html=True)
-        # =================================
         
         # 创建三列布局
         col1, col2, col3 = st.columns(3)
@@ -822,7 +818,21 @@ with st.sidebar:
                 help="旋律中出现调式外半音的概率。0=全为调内音（强制）"
             )
         
-        # 生成按钮放在三列下方
+        # ===== 实时预览音符线条 =====
+        st.markdown("#### 🎼 实时预览")
+        # 生成预览（2小节）
+        right_preview, left_preview = generate_preview_score(
+            raw_melodies[0], start_measure, motif_length_beats,
+            selected_key, selected_mode, selected_style, left_style,
+            chords_per_bar, chord_prog_input,
+            dev_technique, stretch_factor, motif_weight,
+            rhythm_source, dotted_prob, syncopated_prob, density, chromatic_prob,
+            preview_measures=2
+        )
+        canvas_html = generate_note_line_canvas(right_preview, left_preview, width=280, height=80)
+        st.markdown(canvas_html, unsafe_allow_html=True)
+        
+        # 生成按钮放在预览下方
         if st.button("🎹 生成带伴奏的乐段", use_container_width=True):
             if not raw_melodies:
                 st.warning("请先导入MIDI")
@@ -841,11 +851,9 @@ with st.sidebar:
                         chromatic_prob,
                         key=selected_key, mode=selected_mode, style=selected_style, beats_per_measure=4.0
                     )
-                    # 更新计数器
                     st.session_state.variant_counter += 1
                     new_variant_number = st.session_state.variant_counter
                     
-                    # 插入到最前面
                     st.session_state.variants.insert(0, developed_score)
                     st.session_state.variant_meta.insert(0, {
                         'variant_number': new_variant_number,
