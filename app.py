@@ -551,7 +551,7 @@ def develop_motif_with_progression_advanced(
     score.append(left_part)
     return score
 
-# ==================== 音符可视化函数（波浪线版） ====================
+# ==================== 音符可视化函数（混合区域波浪线） ====================
 
 def extract_notes_from_score(score):
     """从Score对象中提取左右手音符列表"""
@@ -568,6 +568,7 @@ def generate_note_line_canvas(notes_right, notes_left, width=300, height=80):
     """
     生成音符线条的HTML SVG代码（波浪线，Y轴位置反映音高）
     右手：奶绿色 #b8e0b8，左手：浅蓝色 #b0d0ff
+    左右手线条在同一区域内混排（不再分上下两个区域）
     无背景无文字
     """
     if not notes_right and not notes_left:
@@ -585,22 +586,11 @@ def generate_note_line_canvas(notes_right, notes_left, width=300, height=80):
     
     time_scale = width / max_time
     
-    # 确定音高范围（左右手分别处理）
-    # 右手区域：Y坐标范围 10 到 40
-    # 左手区域：Y坐标范围 50 到 80
-    def pitch_to_y_right(pitch):
-        # 将 MIDI 音高 0-127 映射到 10-40，高音在上（小Y值）
-        y_min = 10
-        y_max = 40
-        # 限制范围
-        p = max(0, min(127, pitch))
-        # 高音对应小Y值，低音对应大Y值，所以用 max - (p - min_pitch)/range * height
-        # 假设常用音高范围 48-84（C3-C5），但为了通用，映射0-127
-        return y_min + (y_max - y_min) * (1 - p / 127)  # p=127时 y_min, p=0时 y_max
-    
-    def pitch_to_y_left(pitch):
-        y_min = 50
-        y_max = 80
+    # 音高映射到Y坐标：将MIDI音高0-127映射到5-75（留点边距）
+    # 高音在上（小Y值），低音在下（大Y值）
+    def pitch_to_y(pitch):
+        y_min = 5
+        y_max = height - 5
         p = max(0, min(127, pitch))
         return y_min + (y_max - y_min) * (1 - p / 127)
     
@@ -613,25 +603,23 @@ def generate_note_line_canvas(notes_right, notes_left, width=300, height=80):
     for n in notes_right:
         x1 = n.offset * time_scale
         x2 = (n.offset + n.quarterLength) * time_scale
-        y1 = pitch_to_y_right(n.pitch.midi)
-        y2 = pitch_to_y_right(n.pitch.midi)  # 水平线，但y坐标取决于音高，所以是水平线段在相应音高位置
+        y = pitch_to_y(n.pitch.midi)
         vel = None
         if hasattr(n, 'volume') and n.volume is not None:
             vel = getattr(n.volume, 'velocity', None)
         thickness = velocity_to_thickness(vel if vel is not None else 80)
-        right_paths.append(f"<line x1='{x1}' y1='{y1}' x2='{x2}' y2='{y2}' stroke='#b8e0b8' stroke-width='{thickness}' />")
+        right_paths.append(f"<line x1='{x1}' y1='{y}' x2='{x2}' y2='{y}' stroke='#b8e0b8' stroke-width='{thickness}' />")
     
     left_paths = []
     for n in notes_left:
         x1 = n.offset * time_scale
         x2 = (n.offset + n.quarterLength) * time_scale
-        y1 = pitch_to_y_left(n.pitch.midi)
-        y2 = pitch_to_y_left(n.pitch.midi)
+        y = pitch_to_y(n.pitch.midi)
         vel = None
         if hasattr(n, 'volume') and n.volume is not None:
             vel = getattr(n.volume, 'velocity', None)
         thickness = velocity_to_thickness(vel if vel is not None else 70)
-        left_paths.append(f"<line x1='{x1}' y1='{y1}' x2='{x2}' y2='{y2}' stroke='#b0d0ff' stroke-width='{thickness}' />")
+        left_paths.append(f"<line x1='{x1}' y1='{y}' x2='{x2}' y2='{y}' stroke='#b0d0ff' stroke-width='{thickness}' />")
     
     html = f"""
     <svg width="{width}" height="{height}" style="display: block;">
@@ -876,7 +864,7 @@ if st.session_state.variants:
                         help="下载MIDI文件"
                     )
                 
-                # 第二行：音符线条（波浪线版）
+                # 第二行：音符线条（混合区域波浪线）
                 canvas_html = generate_note_line_canvas(right_notes, left_notes, width=280, height=80)
                 st.markdown(canvas_html, unsafe_allow_html=True)
                 
