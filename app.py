@@ -92,6 +92,15 @@ html, body, [class*="css"]  {
     width: 40px;
     margin-top: 18px; /* 与输入框顶部对齐 */
 }
+/* 星号单选按钮水平排列 */
+.stRadio > div {
+    flex-direction: row !important;
+    gap: 8px;
+}
+.stRadio label {
+    font-size: 1.2rem !important;
+    color: #ffaa00 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -885,7 +894,7 @@ if st.session_state.variants:
             
             # ========== 右列 ==========
             with right_col:
-                # 第一行：两个五星评分并排
+                # 第一行：两个五星评分并排（使用 radio 完全无滑块）
                 if idx < len(st.session_state.labels_surprise):
                     current_s = st.session_state.labels_surprise[idx] if st.session_state.labels_surprise[idx] is not None else 3
                 else:
@@ -897,16 +906,24 @@ if st.session_state.variants:
                 
                 rating_col1, rating_col2 = st.columns(2)
                 with rating_col1:
-                    new_s = st.select_slider(
-                        "意外度", options=[1,2,3,4,5], value=current_s,
+                    new_s = st.radio(
+                        "意外度",
+                        options=[1,2,3,4,5],
+                        index=current_s-1,
+                        horizontal=True,
                         format_func=lambda x: "⭐" * x,
-                        key=f"s_{idx}", help="1=最低意外，5=最高意外"
+                        key=f"s_radio_{idx}",
+                        help="1=最低意外，5=最高意外"
                     )
                 with rating_col2:
-                    new_b = st.select_slider(
-                        "好听度", options=[1,2,3,4,5], value=current_b,
+                    new_b = st.radio(
+                        "好听度",
+                        options=[1,2,3,4,5],
+                        index=current_b-1,
+                        horizontal=True,
                         format_func=lambda x: "⭐" * x,
-                        key=f"b_{idx}", help="1=最难听，5=最好听"
+                        key=f"b_radio_{idx}",
+                        help="1=最难听，5=最好听"
                     )
                 
                 # 第二行：感受词 + 保存图标按钮
