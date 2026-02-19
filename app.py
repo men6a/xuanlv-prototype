@@ -51,7 +51,7 @@ html, body, [class*="css"]  {
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-title">🎵 玄·律标注原型</div>', unsafe_allow_html=True)
-st.markdown("上传MIDI文件，从动机发展出带左手柱式和弦的完整乐段，并标注听感。")
+st.markdown("上传MIDI文件，从动机发展出带左手伴奏的完整乐段，并标注听感。")
 
 # 初始化session_state
 if 'variants' not in st.session_state:
@@ -135,6 +135,14 @@ class MusicTheoryEngine:
         return {(root_pitch_class + offset) % 12 for offset in [0, 4, 7]}
     
     @classmethod
+    def get_chord_notes(cls, chord_degree, key='C', mode='major', octave=3):
+        """获取和弦的具体音符（MIDI值列表），用于分解或琶音"""
+        root = cls.get_bass_note(chord_degree, key, mode, octave)
+        third = root + 4
+        fifth = root + 7
+        return [root, third, fifth]
+    
+    @classmethod
     def get_bass_note(cls, chord_degree, key='C', mode='major', octave=3):
         """获取和弦根音MIDI值"""
         note_to_idx = {'C':0, 'C#':1, 'Db':1, 'D':2, 'D#':3, 'Eb':3, 'E':4, 
@@ -204,7 +212,6 @@ class MusicTheoryEngine:
         last_pitch = prev_pitch
         
         for i, dur in enumerate(rhythm_pattern):
-            # 根据权重决定是否使用动机音高
             use_motif = (random.random() < motif_weight) and motif_pitches
             if use_motif:
                 motif_pitch = motif_pitches[motif_idx % len(motif_pitches)]
@@ -213,7 +220,7 @@ class MusicTheoryEngine:
                 pitch_val = cls.adjust_to_scale(pitch_val, scale_notes)
             else:
                 chord_tones_list = list(chord_tones)
-                if random.random() < 0.7:  # 70%和弦音
+                if random.random() < 0.7:
                     pitch_class = random.choice(chord_tones_list)
                 else:
                     scale_list = list(scale_notes)
@@ -222,7 +229,6 @@ class MusicTheoryEngine:
                         pitch_class = random.choice(non_chord)
                     else:
                         pitch_class = random.choice(chord_tones_list)
-                # 确定八度
                 if last_pitch is not None:
                     best_pitch = None
                     min_dist = 100
@@ -268,7 +274,6 @@ def extract_motif(notes, start_measure, length_measures):
     motif_notes = [copy.deepcopy(n) for n in notes if n.offset >= start_offset and n.offset < end_offset]
     if not motif_notes:
         return None, None
-    # 重置offset
     min_offset = min(n.offset for n in motif_notes)
     for n in motif_notes:
         n.offset -= min_offset
@@ -300,13 +305,12 @@ def apply_development_to_pitches(motif_pitches, technique, scale_notes):
 def develop_motif_with_progression_advanced(
     motif_notes, motif_pitches, target_measures, chord_sequence_str,
     chords_per_bar, development_technique, stretch_factor, motif_weight,
-    rhythm_source, density,  # 新增参数
+    rhythm_source, density, left_style,  # 新增 left_style
     key='C', mode='major', style='classical', beats_per_measure=4.0
 ):
     """
     根据和弦进程生成旋律，混合动机音高，并可选择节奏模式
-    rhythm_source: 0-1，<=0.5使用动机节奏，>0.5使用自由均匀节奏
-    density: 0-1，当使用自由节奏时映射到每拍1-4个八分音符
+    left_style: 左手演奏法 ('柱形', '分解', '琶音')
     """
     if not motif_notes:
         return stream.Score()
@@ -330,12 +334,11 @@ def develop_motif_with_progression_advanced(
     # 对动机音高应用发展手法
     developed_pitches = apply_development_to_pitches(motif_pitches, development_technique, scale_notes)
     
-    # 提取动机节奏模式（原始时值，未伸缩）
+    # 提取动机节奏模式
     motif_rhythm = extract_rhythm_pattern(motif_notes)
     if stretch_factor != 1.0:
         motif_rhythm = [d * stretch_factor for d in motif_rhythm]
     
-    # 根据节奏来源决定使用的节奏模式
     use_motif_rhythm = rhythm_source <= 0.5
     
     # 创建左右手Part
@@ -345,7 +348,7 @@ def develop_motif_with_progression_advanced(
     right_part.append(instrument.Piano())
     
     left_part = stream.Part()
-    left_part.partName = "左手和弦"
+    left_part.partName = "左手伴奏"
     left_part.id = 'left'
     left_part.append(instrument.Piano())
     
@@ -356,40 +359,59 @@ def develop_motif_with_progression_advanced(
     for chord_idx, chord_degree in enumerate(chord_cycle):
         chord_tones = MusicTheoryEngine.get_chord_tones(chord_degree, key, mode)
         
-        # 确定当前和弦使用的节奏模式
+        # 确定右手节奏模式
         if use_motif_rhythm:
-            # 使用动机节奏，但需要缩放以适应和弦时长
             total_motif_dur = sum(motif_rhythm)
             scale = chord_duration_beats / total_motif_dur
             current_rhythm = [d * scale for d in motif_rhythm]
         else:
-            # 使用自由均匀节奏，密度由 density 决定
-            notes_per_beat = 1 + density * 3  # 1到4
+            notes_per_beat = 1 + density * 3
             total_notes = max(1, int(round(chord_duration_beats * notes_per_beat)))
             note_duration = chord_duration_beats / total_notes
             current_rhythm = [note_duration] * total_notes
         
-        # 生成旋律片段
+        # 生成右手旋律
         melody_notes, last_pitch, motif_idx = MusicTheoryEngine.generate_melody_for_chord(
             chord_duration_beats, chord_tones, scale_notes, current_rhythm, style,
             developed_pitches, motif_weight, last_pitch, motif_idx
         )
-        
         for n in melody_notes:
             new_n = copy.deepcopy(n)
             new_n.offset = current_time + n.offset
             right_part.append(new_n)
         
-        # 左手和弦
-        root = MusicTheoryEngine.get_bass_note(chord_degree, key, mode, octave=3)
-        third = root + 4
-        fifth = root + 7
-        left_chord = chord.Chord([root, third, fifth])
-        left_chord.quarterLength = chord_duration_beats
-        left_chord.offset = current_time
-        left_chord.volume.velocity = 84
-        left_part.append(left_chord)
-        
+        # 左手伴奏生成
+        chord_notes = MusicTheoryEngine.get_chord_notes(chord_degree, key, mode, octave=3)
+        if left_style == "柱形":
+            left_chord = chord.Chord(chord_notes)
+            left_chord.quarterLength = chord_duration_beats
+            left_chord.offset = current_time
+            left_chord.volume.velocity = 84
+            left_part.append(left_chord)
+        elif left_style == "分解":
+            # 简单分解：根-三-五，每个音时值相等
+            sub_dur = chord_duration_beats / 3
+            for i, p in enumerate(chord_notes):
+                n = note.Note()
+                n.pitch.midi = p
+                n.quarterLength = sub_dur
+                n.offset = current_time + i * sub_dur
+                n.volume.velocity = 84
+                left_part.append(n)
+        elif left_style == "琶音":
+            # 琶音：类似分解但音符略有重叠或更紧凑，这里简化为快速分解，每个音时值稍短，留一点间隙
+            # 为简单起见，与分解相同处理，但可加入一点变化（例如每个音时值略短，剩余时值休止）
+            # 这里我们使用与分解相同的逻辑，因为 MIDI 播放时分解和琶音听觉差异可能不大
+            # 为了区分，可以让琶音的音符时值稍短，例如和弦时长的 1/4，然后休止
+            sub_dur = chord_duration_beats / 4
+            for i, p in enumerate(chord_notes):
+                n = note.Note()
+                n.pitch.midi = p
+                n.quarterLength = sub_dur
+                n.offset = current_time + i * sub_dur
+                n.volume.velocity = 84
+                left_part.append(n)
+            # 剩余时值休止（不添加音符）
         current_time += chord_duration_beats
     
     score = stream.Score()
@@ -447,7 +469,7 @@ def get_midi_player_html(midi_bytes, player_id):
 with st.sidebar:
     st.markdown("### 1. 导入MIDI文件")
     uploaded_files = st.file_uploader("选择MIDI文件", type=['mid','midi'], accept_multiple_files=True)
-    raw_melodies = []  # 存储原始旋律的note列表
+    raw_melodies = []
     if uploaded_files:
         for f in uploaded_files:
             with tempfile.NamedTemporaryFile(delete=False, suffix='.mid') as tmp:
@@ -468,7 +490,6 @@ with st.sidebar:
 
     st.markdown("### 2. 动机发展")
     if raw_melodies:
-        # 估算总小节数
         total_measures_est = get_total_measures(raw_melodies[0])
         st.caption(f"当前MIDI估算总小节数: {total_measures_est}")
         
@@ -493,12 +514,12 @@ with st.sidebar:
         stretch_factor = st.slider("节奏伸缩因子", 0.5, 2.0, 1.0, step=0.1)
         motif_weight = st.slider("动机保留度 (音高)", 0.0, 1.0, 0.5, step=0.05,
                                  help="0：完全基于和弦生成音高；1：尽可能使用动机音高并调整到和弦内")
-        
-        # 新增两个滑块
         rhythm_source = st.slider("节奏来源", 0.0, 1.0, 0.0, step=0.05,
                                   help="0=使用动机节奏型；1=使用自由均匀节奏（密度由下方滑块决定）")
         density = st.slider("音符密度 (当节奏自由时)", 0.0, 1.0, 0.5, step=0.05,
                             help="0=一拍1个八分音符，1=一拍4个八分音符")
+        # 左手演奏法选择
+        left_style = st.selectbox("左手演奏法", ["柱形", "分解", "琶音"], index=0)
         
         if st.button("生成带伴奏的乐段"):
             if not raw_melodies:
@@ -512,7 +533,7 @@ with st.sidebar:
                     developed_score = develop_motif_with_progression_advanced(
                         motif_notes, motif_pitches, target_length, chord_prog_input,
                         chords_per_bar, dev_technique, stretch_factor, motif_weight,
-                        rhythm_source, density,  # 传入新参数
+                        rhythm_source, density, left_style,
                         key=selected_key, mode=selected_mode, style=selected_style, beats_per_measure=4.0
                     )
                     new_idx = len(st.session_state.variants)
@@ -529,6 +550,7 @@ with st.sidebar:
                         'motif_weight': motif_weight,
                         'rhythm_source': rhythm_source,
                         'density': density,
+                        'left_style': left_style,
                         'key': selected_key,
                         'mode': selected_mode,
                         'style': selected_style
@@ -555,7 +577,8 @@ if st.session_state.variants:
                          f"手法:{meta.get('technique')} | 伸缩:{meta.get('stretch')} | "
                          f"动机保留:{meta.get('motif_weight',0.5):.2f} | "
                          f"节奏来源:{'动机' if meta.get('rhythm_source',0)<=0.5 else '自由'} | "
-                         f"密度:{meta.get('density',0.5):.2f}")
+                         f"密度:{meta.get('density',0.5):.2f} | "
+                         f"左手:{meta.get('left_style','柱形')}")
         else:
             param_str = "变体"
         
