@@ -606,8 +606,7 @@ with st.sidebar:
     st.markdown("### 2. 动机发展")
     if raw_melodies:
         total_measures_est = get_total_measures(raw_melodies[0])
-        total_beats_est = get_total_beats(raw_melodies[0])
-        st.caption(f"当前MIDI估算总小节数: {total_measures_est}, 总拍数: {total_beats_est:.1f}")
+        st.caption(f"当前MIDI估算总小节数: {total_measures_est}")
         
         key_options = ['C', 'G', 'D', 'A', 'E', 'F', 'Bb', 'Eb', 'Ab']
         selected_key = st.select_slider(
@@ -641,15 +640,10 @@ with st.sidebar:
             "起始小节", min_value=1, max_value=max(1, total_measures_est), value=1,
             help="从第几小节开始提取动机"
         )
-        # 动机长度（拍），最大32拍，且不超过文件剩余拍数
-        max_motif_beats_calc = total_beats_est - (start_measure - 1) * 4
-        # 确保 max_value 至少为 min_value（1.0）
-        max_motif_beats = max(1.0, min(32.0, max_motif_beats_calc))
-        # 默认值8.0，但限制在范围内
-        default_motif_beats = min(8.0, max_motif_beats)
+        # 动机长度（拍），固定1-32拍
         motif_length_beats = st.slider(
-            "动机长度（拍）", min_value=1.0, max_value=max_motif_beats, value=default_motif_beats, step=0.5,
-            help="动机的长度，以拍为单位（最大32拍）"
+            "动机长度（拍）", min_value=1.0, max_value=32.0, value=8.0, step=0.5,
+            help="动机的长度，以拍为单位（1-32拍）"
         )
         # 目标乐段长度（小节）
         target_length = st.slider(
