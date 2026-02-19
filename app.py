@@ -39,33 +39,42 @@ html, body, [class*="css"]  {
     font-size: 0.75rem !important;
     font-weight: 600;
 }
-/* 按钮极限贴近感受输入框 */
+/* 图标按钮紧凑样式 */
+.icon-button {
+    padding: 0.2rem 0.5rem !important;
+    font-size: 1rem !important;
+    min-width: auto !important;
+}
+/* 按钮极限贴近 */
 .button-row {
     margin-top: -18px !important;
 }
-.button-row .stButton button, .button-row .stDownloadButton button {
-    font-size: 0.8rem !important;
-    padding: 0.15rem 0.4rem !important;
-    line-height: 1.2;
-}
-/* 侧边栏三列布局样式 */
-.sidebar-cols {
+/* 播放器与下载按钮并排行 */
+.player-row {
     display: flex;
-    gap: 0.5rem;
-    margin-top: 0.5rem;
+    align-items: center;
+    gap: 4px;
 }
-.sidebar-col {
+.player-row .player-container {
     flex: 1;
-    background-color: #f8f9fa;
-    padding: 0.5rem;
-    border-radius: 4px;
 }
-/* 音符线条画布容器 */
-.note-canvas-container {
-    background-color: #f0f2f6;
-    border-radius: 8px;
-    padding: 10px;
-    margin: 10px 0;
+.player-row .download-icon {
+    flex: 0 0 auto;
+    width: 40px;
+}
+/* 感受词行 */
+.feelings-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+}
+.feelings-row .feelings-input {
+    flex: 1;
+}
+.feelings-row .save-icon {
+    flex: 0 0 auto;
+    width: 40px;
+    margin-top: 18px; /* 与输入框顶部对齐 */
 }
 </style>
 """, unsafe_allow_html=True)
@@ -526,39 +535,10 @@ def develop_motif_with_progression_advanced(
     score.append(left_part)
     return score
 
-# ==================== 预览生成函数 ====================
+# ==================== 音符可视化函数 ====================
 
-def generate_preview_score(
-    source_notes, start_measure, motif_length_beats,
-    key, mode, style, left_style,
-    chords_per_bar, chord_prog_input,
-    dev_technique, stretch_factor, motif_weight,
-    rhythm_source, dotted_prob, syncopated_prob, density, chromatic_prob,
-    preview_measures=2  # 预览只生成2小节
-):
-    """
-    根据当前滑块参数生成短小的预览乐段，用于实时显示音符线条
-    返回 (right_notes, left_notes) 两个音符列表
-    """
-    # 如果没有源音符，返回空
-    if not source_notes:
-        return [], []
-    
-    # 提取动机
-    motif_notes, motif_pitches = extract_motif_by_beats(source_notes, start_measure, motif_length_beats)
-    if not motif_notes:
-        return [], []
-    
-    # 生成预览乐段（使用 preview_measures 而不是 target_length）
-    score = develop_motif_with_progression_advanced(
-        motif_notes, motif_pitches, preview_measures, chord_prog_input,
-        chords_per_bar, dev_technique, stretch_factor, motif_weight,
-        rhythm_source, dotted_prob, syncopated_prob, density, left_style,
-        chromatic_prob,
-        key=key, mode=mode, style=style, beats_per_measure=4.0
-    )
-    
-    # 从score中提取左右手音符
+def extract_notes_from_score(score):
+    """从Score对象中提取左右手音符列表"""
     right_notes = []
     left_notes = []
     for part in score.parts:
@@ -566,16 +546,14 @@ def generate_preview_score(
             right_notes = list(part.flat.getElementsByClass(note.Note))
         elif part.partName == "左手伴奏":
             left_notes = list(part.flat.getElementsByClass(note.Note))
-    
     return right_notes, left_notes
 
 def generate_note_line_canvas(notes_right, notes_left, width=300, height=80):
     """
     生成音符线条的HTML Canvas代码（纯线条，无文字标签）
-    修复力度取值错误
     """
     if not notes_right and not notes_left:
-        return "<div style='padding:20px; text-align:center; color:#999;'>无音符数据</div>"
+        return "<div style='padding:10px; text-align:center; color:#999;'>无音符数据</div>"
     
     max_time = 0
     for n in notes_right + notes_left:
@@ -615,7 +593,7 @@ def generate_note_line_canvas(notes_right, notes_left, width=300, height=80):
         left_paths.append(f"<line x1='{x1}' y1='{y}' x2='{x2}' y2='{y}' stroke='#8b5a2b' stroke-width='{thickness}' />")
     
     html = f"""
-    <div style="background-color: white; border-radius: 4px; padding: 10px;">
+    <div style="background-color: white; border-radius: 4px; padding: 5px;">
         <svg width="{width}" height="{height}" style="background-color: #f8f9fa;">
             <rect width="{width}" height="{height}" fill="#f8f9fa" />
             <line x1="0" y1="20" x2="{width}" y2="20" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2,2" />
@@ -687,13 +665,10 @@ def get_midi_player_html(midi_bytes, player_id):
     """
     return html
 
-# ==================== 侧边栏UI（三列布局，预览置顶） ====================
+# ==================== 侧边栏UI（三列布局，无预览） ====================
 
 with st.sidebar:
-    # 创建预览占位符（置顶）
-    preview_placeholder = st.empty()
-    
-    # 文件上传器（无标签，无提示）
+    # 文件上传器（无标签）
     uploaded_files = st.file_uploader("", type=['mid','midi'], accept_multiple_files=True, key="file_uploader")
     raw_melodies = []
     if uploaded_files:
@@ -706,9 +681,7 @@ with st.sidebar:
                 note_list = list(score.parts[0].flat.getElementsByClass(note.Note))
                 if note_list:
                     raw_melodies.append(note_list)
-                # 移除所有成功/失败提示
             except Exception as e:
-                # 静默失败，不显示错误
                 pass
             import os
             os.unlink(tmp_path)
@@ -803,8 +776,7 @@ with st.sidebar:
                 st.success(f"✅ 变体 #{new_num}")
     else:
         st.caption("未导入文件")
-        # 即使没有文件，也定义默认滑块值供预览使用（但预览不会调用）
-        # 但为了预览占位符能正确显示，我们在这里定义默认值
+        # 定义默认滑块值（用于预览不存在，但保留变量）
         selected_key = 'C'
         selected_mode = 'major'
         selected_style = 'classical'
@@ -822,21 +794,6 @@ with st.sidebar:
         syncopated_prob = 0.33
         density = 0.5
         chromatic_prob = 0.0
-
-    # 在所有滑块之后，更新预览占位符
-    if raw_melodies:
-        right_preview, left_preview = generate_preview_score(
-            raw_melodies[0], start_measure, motif_length_beats,
-            selected_key, selected_mode, selected_style, left_style,
-            chords_per_bar, chord_prog_input,
-            dev_technique, stretch_factor, motif_weight,
-            rhythm_source, dotted_prob, syncopated_prob, density, chromatic_prob,
-            preview_measures=2
-        )
-        canvas_html = generate_note_line_canvas(right_preview, left_preview, width=280, height=80)
-        preview_placeholder.markdown(canvas_html, unsafe_allow_html=True)
-    else:
-        preview_placeholder.markdown("<div style='background:white; border-radius:4px; padding:10px; text-align:center; color:#999;'>请上传MIDI文件</div>", unsafe_allow_html=True)
 
 # ==================== 主界面 ====================
 
@@ -864,39 +821,49 @@ if st.session_state.variants:
         with st.expander(expander_title, expanded=True):
             left_col, right_col = st.columns(2)
             with left_col:
+                # 生成MIDI字节和音符可视化数据
                 midi_bytes = get_midi_bytes(var)
+                right_notes, left_notes = extract_notes_from_score(var)
                 player_html = get_midi_player_html(midi_bytes, idx)
-                st.components.v1.html(player_html, height=60)
-
-                if idx < len(st.session_state.labels_feelings):
-                    current_f = st.session_state.labels_feelings[idx] if st.session_state.labels_feelings[idx] is not None else ""
-                else:
-                    current_f = ""
-                st.text_area(
-                    "感受词",
-                    value=current_f,
-                    height=80,
-                    placeholder="请标注变体听感（例如：跳跃、不协和、温柔...）",
-                    key=f"f_{idx}",
-                    label_visibility="collapsed"
-                )
-
-                st.markdown('<div class="button-row">', unsafe_allow_html=True)
-                btn_col1, btn_col2 = st.columns(2)
-                with btn_col1:
+                
+                # 第一行：播放器 + 下载图标按钮
+                player_col, download_col = st.columns([5,1])
+                with player_col:
+                    st.components.v1.html(player_html, height=60)
+                with download_col:
                     st.download_button(
-                        "⬇️ 下载MIDI文件",
-                        data=get_midi_bytes(var),
+                        "⬇️",
+                        data=midi_bytes,
                         file_name=f"variant_{variant_display_num}.mid",
                         mime="audio/midi",
-                        key=f"download_{idx}"
+                        key=f"download_{idx}",
+                        help="下载MIDI文件"
                     )
-                with btn_col2:
-                    if st.button("💾 保存标注", key=f"save_left_{idx}"):
+                
+                # 第二行：音符线条
+                canvas_html = generate_note_line_canvas(right_notes, left_notes, width=280, height=80)
+                st.markdown(canvas_html, unsafe_allow_html=True)
+                
+                # 第三行：感受词 + 保存图标按钮
+                feelings_col, save_col = st.columns([5,1])
+                with feelings_col:
+                    if idx < len(st.session_state.labels_feelings):
+                        current_f = st.session_state.labels_feelings[idx] if st.session_state.labels_feelings[idx] is not None else ""
+                    else:
+                        current_f = ""
+                    new_f = st.text_area(
+                        "感受词",
+                        value=current_f,
+                        height=60,
+                        placeholder="请标注变体听感...",
+                        key=f"f_{idx}",
+                        label_visibility="collapsed"
+                    )
+                with save_col:
+                    if st.button("💾", key=f"save_left_{idx}", help="保存标注"):
                         current_s = st.session_state.get(f"s_{idx}", 0.5)
                         current_b = st.session_state.get(f"b_{idx}", 0.5)
-                        current_f = st.session_state.get(f"f_{idx}", "")
-
+                        # 更新保存的值
                         while len(st.session_state.labels_surprise) <= idx:
                             st.session_state.labels_surprise.append(None)
                         while len(st.session_state.labels_beauty) <= idx:
@@ -905,14 +872,13 @@ if st.session_state.variants:
                             st.session_state.labels_feelings.append("")
                         while len(st.session_state.save_indicator) <= idx:
                             st.session_state.save_indicator.append("")
-
+                        
                         st.session_state.labels_surprise[idx] = current_s
                         st.session_state.labels_beauty[idx] = current_b
-                        st.session_state.labels_feelings[idx] = current_f
+                        st.session_state.labels_feelings[idx] = new_f  # 使用输入框的值
                         st.session_state.save_indicator[idx] = "✅"
                         st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-
+            
             with right_col:
                 if idx < len(st.session_state.labels_surprise):
                     current_s = st.session_state.labels_surprise[idx] if st.session_state.labels_surprise[idx] is not None else 0.5
