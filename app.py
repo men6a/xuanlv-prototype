@@ -208,47 +208,47 @@ class MusicTheoryEngine:
         return best
     
     @classmethod
-    def generate_rhythm_pattern(cls, chord_duration, rhythm_tendency, density, style):
+    def generate_rhythm_pattern(cls, chord_duration, dotted_prob, syncopated_prob, density):
         """
-        根据节奏倾向和密度生成节奏模式
-        rhythm_tendency: 0-1 连续值，0=附点倾向，1=切分倾向，中间值按区间划分：
-            - [0, 0.33] 附点区域：随机选择前附点或后附点
-            - (0.33, 0.66] 混合区域：均分节奏（密度生效）
-            - (0.66, 1] 切分区域：随机选择前切分或后切分
+        根据附点概率、切分概率和密度生成节奏模式
+        - 如果随机选择附点或切分，返回固定节奏型（忽略密度）
+        - 否则选择均分节奏，根据密度决定音符数（密度0返回空列表表示休止）
         """
-        if rhythm_tendency <= 0.33:
-            # 附点区域
+        r = random.random()
+        if r < dotted_prob:
+            # 附点区域：随机前附点或后附点
             if random.random() < 0.5:
-                # 前附点
+                # 前附点：2/3 + 1/3
                 part = chord_duration / 3
                 return [part * 2, part]
             else:
-                # 后附点
+                # 后附点：1/3 + 2/3
                 part = chord_duration / 3
                 return [part, part * 2]
-        elif rhythm_tendency <= 0.66:
-            # 混合区域：均分节奏，密度生效
-            notes_per_beat = 1 + density * 3  # 1-4
-            total_notes = max(1, int(round(chord_duration * notes_per_beat)))
-            note_duration = chord_duration / total_notes
-            return [note_duration] * total_notes
-        else:
-            # 切分区域
+        elif r < dotted_prob + syncopated_prob:
+            # 切分区域：随机前切分或后切分
             if random.random() < 0.5:
-                # 前切分：八分+四分+八分
+                # 前切分：1/4, 2/4, 1/4
                 part = chord_duration / 4
                 return [part, part * 2, part]
             else:
-                # 后切分：四分+八分+四分
+                # 后切分：2/4, 1/4, 2/4
                 part = chord_duration / 4
                 return [part * 2, part, part * 2]
+        else:
+            # 均分区域：密度决定音符数
+            if density <= 0:
+                return []  # 无音符
+            # 密度线性映射到每拍音符数：密度0→0，密度1→4，中间值四舍五入
+            notes_per_beat = density * 4
+            total_notes = max(1, int(round(chord_duration * notes_per_beat)))
+            note_duration = chord_duration / total_notes
+            return [note_duration] * total_notes
     
     @classmethod
-    def generate_melody_for_chord(cls, chord_duration, chord_tones, scale_notes, rhythm_tendency, density, style, motif_pitches, motif_weight, prev_pitch=None, motif_idx=0):
+    def generate_melody_for_chord(cls, chord_duration, chord_tones, scale_notes, dotted_prob, syncopated_prob, density, style, motif_pitches, motif_weight, prev_pitch=None, motif_idx=0):
         """
-        根据和弦和节奏模式生成旋律片段，并可混合动机音高
-        rhythm_tendency: 节奏倾向滑块值
-        density: 密度参数（仅在混合区域生效）
+        根据和弦和节奏参数生成旋律片段
         """
         style_params = {
             'classical': {'passing': 0.3, 'neighbor': 0.2, 'leap': 0.1},
@@ -257,7 +257,9 @@ class MusicTheoryEngine:
         }.get(style, {'passing': 0.3, 'neighbor': 0.2, 'leap': 0.1})
         
         # 生成节奏模式
-        rhythm_pattern = cls.generate_rhythm_pattern(chord_duration, rhythm_tendency, density, style)
+        rhythm_pattern = cls.generate_rhythm_pattern(chord_duration, dotted_prob, syncopated_prob, density)
+        if not rhythm_pattern:
+            return [], last_pitch if 'last_pitch' in locals() else prev_pitch, motif_idx
         
         notes = []
         current_time = 0.0
@@ -357,11 +359,14 @@ def apply_development_to_pitches(motif_pitches, technique, scale_notes):
 def develop_motif_with_progression_advanced(
     motif_notes, motif_pitches, target_measures, chord_sequence_str,
     chords_per_bar, development_technique, stretch_factor, motif_weight,
-    rhythm_source, rhythm_tendency, density, left_style,
+    rhythm_source, dotted_prob, syncopated_prob, density, left_style,
     key='C', mode='major', style='classical', beats_per_measure=4.0
 ):
     """
-    根据和弦进程生成旋律，混合动机音高，节奏倾向由 rhythm_tendency 控制
+    根据和弦进程生成旋律，混合动机音高
+    dotted_prob: 附点倾向 (0-1)
+    syncopated_prob: 切分倾向 (0-1)
+    density: 音符密度 (0-1)，用于均分节奏
     """
     if not motif_notes:
         return stream.Score()
@@ -421,10 +426,10 @@ def develop_motif_with_progression_advanced(
                     new_n.pitch.midi = orig_pitch
                     right_part.append(new_n)
         else:
-            # 使用自由节奏
+            # 使用自由节奏，由 dotted_prob, syncopated_prob, density 控制
             melody_notes, last_pitch, motif_idx = MusicTheoryEngine.generate_melody_for_chord(
                 chord_duration_beats, chord_tones, scale_notes,
-                rhythm_tendency, density, style,
+                dotted_prob, syncopated_prob, density, style,
                 developed_pitches, motif_weight, last_pitch, motif_idx
             )
             for n in melody_notes:
@@ -481,14 +486,12 @@ def get_midi_bytes(score):
 
 def get_midi_player_html(midi_bytes, player_id):
     """
-    返回一个内嵌播放器的HTML，并添加互斥播放逻辑：
-    当任何一个播放器开始播放时，自动停止所有其他播放器。
+    返回一个内嵌播放器的HTML，并添加互斥播放逻辑
     """
     import base64
     midi_base64 = base64.b64encode(midi_bytes).decode('utf-8')
     data_url = f"data:audio/midi;base64,{midi_base64}"
     
-    # 为每个播放器生成唯一的ID
     player_element_id = f"player_{player_id}"
     
     html = f"""
@@ -517,13 +520,9 @@ def get_midi_player_html(midi_bytes, player_id):
     </div>
     <script>
     (function() {{
-        // 等待 DOM 加载完成
         const player = document.getElementById('{player_element_id}');
         if (!player) return;
-        
-        // 添加播放事件监听
         player.addEventListener('play', function() {{
-            // 停止所有其他播放器
             const allPlayers = document.querySelectorAll('midi-player');
             allPlayers.forEach(p => {{
                 if (p !== player && p.stop) {{
@@ -571,7 +570,6 @@ with st.sidebar:
             help="选择乐曲的主调性，影响旋律的和声色彩"
         )
         
-        # 调式选项：西方调式 + 中国五声调式 + 西方五声调式
         mode_options = [
             'major', 'minor', 'harmonic_minor', 'melodic_minor', 'dorian', 'mixolydian',
             'major_pentatonic', 'minor_pentatonic',
@@ -581,7 +579,6 @@ with st.sidebar:
             "调式", options=mode_options, value='major',
             help="选择调式的类型：西方调式、西方五声调式、中国五声调式（宫商角徵羽）"
         )
-        # 转换显示名称为内部代码
         mode_map = {
             'gong (宫)': 'gong', 'shang (商)': 'shang', 'jue (角)': 'jue',
             'zhi (徵)': 'zhi', 'yu (羽)': 'yu'
@@ -607,7 +604,6 @@ with st.sidebar:
             help="生成乐段的总小节数"
         )
         
-        # 修改和弦进程默认值为 "1,5,6,3,4,1,2,5"
         default_prog = "1,5,6,3,4,1,2,5"
         chord_prog_input = st.text_input(
             "和弦进程（罗马数字或阿拉伯数字，逗号或空格分隔）", value=default_prog,
@@ -634,25 +630,27 @@ with st.sidebar:
             help="0：完全基于和弦生成音高；1：尽可能使用动机音高并调整到和弦内"
         )
         
-        # 修改节奏来源默认值为 0.51（自由区域）
         rhythm_source = st.slider(
             "节奏来源", 0.0, 1.0, 0.51, step=0.05,
-            help="0=使用动机节奏型；1=使用自由节奏（类型由下方节奏倾向滑块决定）"
+            help="0=使用动机节奏型；1=使用自由节奏（类型由下方附点和切分倾向决定）"
         )
         
-        # 节奏倾向滑块（附点-混合-切分）
-        rhythm_tendency = st.slider(
-            "节奏倾向", 0.0, 1.0, 0.5, step=0.05,
+        # 新增两个独立滑块
+        dotted_prob = st.slider(
+            "附点倾向", 0.0, 1.0, 0.33, step=0.05,
             disabled=rhythm_source <= 0.5,
-            help="0=附点倾向，1=切分倾向，中间值混合。附点和切分区域使用固定节奏型，混合区域使用均分节奏（密度生效）"
+            help="附点节奏（前附点/后附点）的出现概率"
+        )
+        syncopated_prob = st.slider(
+            "切分倾向", 0.0, 1.0, 0.33, step=0.05,
+            disabled=rhythm_source <= 0.5,
+            help="切分节奏（前切分/后切分）的出现概率。剩余概率为均分节奏。"
         )
         
-        # 密度滑块：仅在节奏倾向处于混合区域(0.33-0.66)且节奏来源为自由时生效
-        density_disabled = (rhythm_source <= 0.5) or (rhythm_tendency <= 0.33) or (rhythm_tendency > 0.66)
+        # 密度滑块始终生效，无禁用条件
         density = st.slider(
-            "音符密度 (仅混合区域)", 0.0, 1.0, 0.5, step=0.05,
-            disabled=density_disabled,
-            help="在混合区域（节奏倾向 0.33-0.66）时，控制每拍音符数：0=一拍1个，1=一拍4个"
+            "音符密度", 0.0, 1.0, 0.5, step=0.05,
+            help="0=无旋律音符（全休止），1=每拍4个音符（均分时），中间值线性映射。附点和切分时此滑块不影响。"
         )
         
         left_style = st.select_slider(
@@ -672,10 +670,10 @@ with st.sidebar:
                     developed_score = develop_motif_with_progression_advanced(
                         motif_notes, motif_pitches, target_length, chord_prog_input,
                         chords_per_bar, dev_technique, stretch_factor, motif_weight,
-                        rhythm_source, rhythm_tendency, density, left_style,
+                        rhythm_source, dotted_prob, syncopated_prob, density, left_style,
                         key=selected_key, mode=selected_mode, style=selected_style, beats_per_measure=4.0
                     )
-                    # 将新生成的变体插入到列表最前面（索引0）
+                    # 插入到最前面
                     st.session_state.variants.insert(0, developed_score)
                     st.session_state.variant_meta.insert(0, {
                         'type': 'development_advanced',
@@ -688,7 +686,8 @@ with st.sidebar:
                         'stretch': stretch_factor,
                         'motif_weight': motif_weight,
                         'rhythm_source': rhythm_source,
-                        'rhythm_tendency': rhythm_tendency,
+                        'dotted_prob': dotted_prob,
+                        'syncopated_prob': syncopated_prob,
                         'density': density,
                         'left_style': left_style,
                         'key': selected_key,
@@ -717,7 +716,8 @@ if st.session_state.variants:
                          f"手法:{meta.get('technique')} | 伸缩:{meta.get('stretch')} | "
                          f"动机保留:{meta.get('motif_weight',0.5):.2f} | "
                          f"节奏来源:{'动机' if meta.get('rhythm_source',0)<=0.5 else '自由'} | "
-                         f"节奏倾向:{meta.get('rhythm_tendency',0.5):.2f} | "
+                         f"附点:{meta.get('dotted_prob',0.33):.2f} | "
+                         f"切分:{meta.get('syncopated_prob',0.33):.2f} | "
                          f"密度:{meta.get('density',0.5):.2f} | "
                          f"左手:{meta.get('left_style','柱形')}")
         else:
