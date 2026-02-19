@@ -429,7 +429,7 @@ def develop_motif_with_progression_advanced(
     for chord_idx, chord_degree in enumerate(chord_cycle):
         chord_tones = MusicTheoryEngine.get_chord_tones(chord_degree, key, mode)
         
-        # 只有当密度>0时才生成右手旋律
+        # 右手旋律生成（仅当密度>0时）
         if density > 0:
             if use_motif_rhythm:
                 if motif_notes:
@@ -455,14 +455,44 @@ def develop_motif_with_progression_advanced(
                     new_n.offset = current_time + n.offset
                     right_part.append(new_n)
         
-        # 左手伴奏始终生成
+        # 左手伴奏生成（根据left_style）
         chord_notes = MusicTheoryEngine.get_chord_notes(chord_degree, key, mode, octave=3)
+        root = chord_notes[0]  # 根音
+        
         if left_style == "柱形":
-            left_chord = chord.Chord(chord_notes)
-            left_chord.quarterLength = chord_duration_beats
-            left_chord.offset = current_time
-            left_chord.volume.velocity = 84
-            left_part.append(left_chord)
+            # 两拍模式：第一拍八度根音，第二拍柱形三和弦
+            # 将和弦时长平分
+            sub_dur = chord_duration_beats / 2
+            # 第一拍：八度根音（根音的低八度和高八度，如果可用）
+            octave_notes = []
+            if root - 12 >= 0:
+                octave_notes.append(root - 12)
+            if root + 12 <= 127:
+                octave_notes.append(root + 12)
+            if octave_notes:
+                if len(octave_notes) == 1:
+                    # 如果只有一个八度音，则作为单音
+                    n1 = note.Note()
+                    n1.pitch.midi = octave_notes[0]
+                    n1.quarterLength = sub_dur
+                    n1.offset = current_time
+                    n1.volume.velocity = 80
+                    left_part.append(n1)
+                else:
+                    # 两个八度音同时发音
+                    chord1 = chord.Chord(octave_notes)
+                    chord1.quarterLength = sub_dur
+                    chord1.offset = current_time
+                    chord1.volume.velocity = 80
+                    left_part.append(chord1)
+            
+            # 第二拍：柱形三和弦
+            chord2 = chord.Chord(chord_notes)
+            chord2.quarterLength = sub_dur
+            chord2.offset = current_time + sub_dur
+            chord2.volume.velocity = 69
+            left_part.append(chord2)
+            
         elif left_style == "分解":
             sub_dur = chord_duration_beats / 3
             for i, p in enumerate(chord_notes):
@@ -481,6 +511,7 @@ def develop_motif_with_progression_advanced(
                 n.offset = current_time + i * sub_dur
                 n.volume.velocity = 84
                 left_part.append(n)
+        
         current_time += chord_duration_beats
     
     score = stream.Score()
@@ -610,11 +641,11 @@ with st.sidebar:
             "起始小节", min_value=1, max_value=max(1, total_measures_est), value=1,
             help="从第几小节开始提取动机"
         )
-        # 动机长度（拍）
-        max_motif_beats = max(1, total_beats_est - (start_measure - 1) * 4)
+        # 动机长度（拍），最大32拍，且不超过文件剩余拍数
+        max_motif_beats = min(32, total_beats_est - (start_measure - 1) * 4)
         motif_length_beats = st.slider(
-            "动机长度（拍）", min_value=1.0, max_value=max_motif_beats, value=8.0, step=0.5,
-            help="动机的长度，以拍为单位"
+            "动机长度（拍）", min_value=1.0, max_value=max(max_motif_beats, 1.0), value=8.0, step=0.5,
+            help="动机的长度，以拍为单位（最大32拍）"
         )
         # 目标乐段长度（小节）
         target_length = st.slider(
@@ -677,7 +708,7 @@ with st.sidebar:
         
         left_style = st.select_slider(
             "左手演奏法", options=["柱形", "分解", "琶音"], value="柱形",
-            help="选择左手的伴奏织体：柱形（同时发音）、分解（依次发音）、琶音（快速分解）"
+            help="柱形：第一拍八度根音（力度80），第二拍柱形三和弦（力度69）；分解：三连音分解；琶音：四连音快速分解"
         )
         
         if st.button("生成带伴奏的乐段"):
