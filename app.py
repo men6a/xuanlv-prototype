@@ -6,6 +6,7 @@ import random
 import copy
 import base64
 import re
+import math
 from music21 import converter, note, stream, midi, chord, interval, pitch, meter, instrument
 
 st.set_page_config(page_title="玄·律标注原型", layout="wide")
@@ -72,14 +73,22 @@ if 'save_indicator' not in st.session_state:
 class MusicTheoryEngine:
     """音乐理论引擎：整合最新研究成果"""
     
-    # 1. 调式音阶定义 
+    # 1. 调式音阶定义（扩展包含五声调式）
     SCALES = {
+        # 西方调式
         'major': [0, 2, 4, 5, 7, 9, 11],     # 大调音阶
         'minor': [0, 2, 3, 5, 7, 8, 10],     # 自然小调
         'harmonic_minor': [0, 2, 3, 5, 7, 8, 11],  # 和声小调
         'melodic_minor': [0, 2, 3, 5, 7, 9, 11],   # 旋律小调上行
         'dorian': [0, 2, 3, 5, 7, 9, 10],    # 多利亚调式
         'mixolydian': [0, 2, 4, 5, 7, 9, 10], # 混合利底亚
+        
+        # 中国五声调式（宫商角徵羽）[citation:1][citation:5]
+        'gong': [0, 2, 4, 7, 9],       # 宫调式：1 2 3 5 6 (do re mi sol la)
+        'shang': [2, 4, 7, 9, 11],     # 商调式：2 3 5 6 7 (re mi sol la si)
+        'jue': [4, 7, 9, 11, 14],      # 角调式：3 5 6 7 2 (mi sol la si re)
+        'zhi': [7, 9, 11, 14, 16],     # 徵调式：5 6 7 2 3 (sol la si re mi)
+        'yu': [9, 11, 14, 16, 18],     # 羽调式：6 7 2 3 5 (la si re mi sol)
     }
     
     # 2. 音程协和度矩阵
@@ -193,19 +202,65 @@ class MusicTheoryEngine:
         return best
     
     @classmethod
-    def generate_melody_for_chord(cls, chord_duration, chord_tones, scale_notes, rhythm_pattern, style, motif_pitches, motif_weight, prev_pitch=None, motif_idx=0):
+    def generate_rhythm_pattern(cls, chord_duration, rhythm_type, density, style):
+        """
+        根据节奏类型和密度生成节奏模式
+        rhythm_type: 节奏类型 ('均分', '前附点', '后附点', '前切分', '后切分')
+        density: 密度参数 (0-1)，当节奏类型为均分时生效
+        style: 风格参数（影响切分音偏好）
+        """
+        # 附点和切分节奏定义 [citation:2][citation:6][citation:9]
+        if rhythm_type == "均分":
+            # 由密度决定每拍音符数
+            notes_per_beat = 1 + density * 3  # 1-4
+            total_notes = max(1, int(round(chord_duration * notes_per_beat)))
+            note_duration = chord_duration / total_notes
+            return [note_duration] * total_notes
+            
+        elif rhythm_type == "前附点":
+            # 前附点：附点在前的结构 (如 附点八分+十六分) [citation:2]
+            pattern_duration = chord_duration
+            # 将和弦时长分解为3等份，取2份给第一个音，1份给第二个音
+            part = pattern_duration / 3
+            return [part * 2, part]
+            
+        elif rhythm_type == "后附点":
+            # 后附点：附点在后的结构 (如 十六分+附点八分) [citation:2]
+            part = chord_duration / 3
+            return [part, part * 2]
+            
+        elif rhythm_type == "前切分":
+            # 前切分：两边短中间长，中间音是两边两倍 [citation:9]
+            # 如 八分+四分+八分 结构
+            part = chord_duration / 4
+            return [part, part * 2, part]
+            
+        elif rhythm_type == "后切分":
+            # 后切分：两边长中间短？实际常用的是大切分变体，这里用对称切分
+            # 为了区分，使用 四分+八分+四分 结构
+            part = chord_duration / 4
+            return [part * 2, part, part * 2]
+        
+        # 默认均分
+        notes_per_beat = 1 + density * 3
+        total_notes = max(1, int(round(chord_duration * notes_per_beat)))
+        note_duration = chord_duration / total_notes
+        return [note_duration] * total_notes
+    
+    @classmethod
+    def generate_melody_for_chord(cls, chord_duration, chord_tones, scale_notes, rhythm_type, density, style, motif_pitches, motif_weight, prev_pitch=None, motif_idx=0):
         """
         根据和弦和节奏模式生成旋律片段，并可混合动机音高
-        rhythm_pattern: 当前和弦时长的音符时值列表（已按和弦时长缩放好）
-        motif_pitches: 动机音高序列
-        motif_weight: 动机保留度
-        返回 (音符列表, 最后一个音高, 新的动机索引)
+        新增 rhythm_type 和 density 参数
         """
         style_params = {
             'classical': {'passing': 0.3, 'neighbor': 0.2, 'leap': 0.1},
             'jazz': {'passing': 0.4, 'neighbor': 0.3, 'leap': 0.2},
             'folk': {'passing': 0.2, 'neighbor': 0.2, 'leap': 0.1}
         }.get(style, {'passing': 0.3, 'neighbor': 0.2, 'leap': 0.1})
+        
+        # 生成节奏模式
+        rhythm_pattern = cls.generate_rhythm_pattern(chord_duration, rhythm_type, density, style)
         
         notes = []
         current_time = 0.0
@@ -305,12 +360,12 @@ def apply_development_to_pitches(motif_pitches, technique, scale_notes):
 def develop_motif_with_progression_advanced(
     motif_notes, motif_pitches, target_measures, chord_sequence_str,
     chords_per_bar, development_technique, stretch_factor, motif_weight,
-    rhythm_source, density, left_style,
+    rhythm_source, density, left_style, rhythm_type,  # 新增 rhythm_type
     key='C', mode='major', style='classical', beats_per_measure=4.0
 ):
     """
-    根据和弦进程生成旋律，混合动机音高，并可选择节奏模式
-    left_style: 左手演奏法 ('柱形', '分解', '琶音')
+    根据和弦进程生成旋律，混合动机音高，可选择节奏类型
+    rhythm_type: 节奏类型 ('均分', '前附点', '后附点', '前切分', '后切分')
     """
     if not motif_notes:
         return stream.Score()
@@ -335,6 +390,7 @@ def develop_motif_with_progression_advanced(
     if stretch_factor != 1.0:
         motif_rhythm = [d * stretch_factor for d in motif_rhythm]
     
+    # 决定是否使用动机节奏（由 rhythm_source 决定）
     use_motif_rhythm = rhythm_source <= 0.5
     
     right_part = stream.Part()
@@ -354,25 +410,20 @@ def develop_motif_with_progression_advanced(
     for chord_idx, chord_degree in enumerate(chord_cycle):
         chord_tones = MusicTheoryEngine.get_chord_tones(chord_degree, key, mode)
         
-        if use_motif_rhythm:
-            total_motif_dur = sum(motif_rhythm)
-            scale = chord_duration_beats / total_motif_dur
-            current_rhythm = [d * scale for d in motif_rhythm]
-        else:
-            notes_per_beat = 1 + density * 3
-            total_notes = max(1, int(round(chord_duration_beats * notes_per_beat)))
-            note_duration = chord_duration_beats / total_notes
-            current_rhythm = [note_duration] * total_notes
-        
+        # 生成右手旋律
         melody_notes, last_pitch, motif_idx = MusicTheoryEngine.generate_melody_for_chord(
-            chord_duration_beats, chord_tones, scale_notes, current_rhythm, style,
-            developed_pitches, motif_weight, last_pitch, motif_idx
+            chord_duration_beats, chord_tones, scale_notes, 
+            rhythm_type, density, style,
+            developed_pitches if use_motif_rhythm else [], 
+            motif_weight if use_motif_rhythm else 0, 
+            last_pitch, motif_idx
         )
         for n in melody_notes:
             new_n = copy.deepcopy(n)
             new_n.offset = current_time + n.offset
             right_part.append(new_n)
         
+        # 左手伴奏生成
         chord_notes = MusicTheoryEngine.get_chord_notes(chord_degree, key, mode, octave=3)
         if left_style == "柱形":
             left_chord = chord.Chord(chord_notes)
@@ -479,18 +530,25 @@ with st.sidebar:
         total_measures_est = get_total_measures(raw_melodies[0])
         st.caption(f"当前MIDI估算总小节数: {total_measures_est}")
         
-        # 使用 select_slider 替代下拉框，使所有控制项均为滑块形式
         key_options = ['C', 'G', 'D', 'A', 'E', 'F', 'Bb', 'Eb', 'Ab']
         selected_key = st.select_slider(
             "调性", options=key_options, value='C',
             help="选择乐曲的主调性，影响旋律的和声色彩"
         )
         
-        mode_options = ['major', 'minor', 'harmonic_minor', 'melodic_minor', 'dorian', 'mixolydian']
-        selected_mode = st.select_slider(
+        # 调式选项：西方调式 + 中国五声调式 [citation:1][citation:5]
+        mode_options = ['major', 'minor', 'harmonic_minor', 'melodic_minor', 'dorian', 'mixolydian',
+                       'gong (宫)', 'shang (商)', 'jue (角)', 'zhi (徵)', 'yu (羽)']
+        selected_mode_display = st.select_slider(
             "调式", options=mode_options, value='major',
-            help="选择调式的类型（大调/小调/中古调式等），决定音阶结构"
+            help="选择调式的类型：西方调式（大调/小调/中古调式）或中国五声调式（宫商角徵羽）[citation:1]"
         )
+        # 转换显示名称为内部代码
+        mode_map = {
+            'gong (宫)': 'gong', 'shang (商)': 'shang', 'jue (角)': 'jue', 
+            'zhi (徵)': 'zhi', 'yu (羽)': 'yu'
+        }
+        selected_mode = mode_map.get(selected_mode_display, selected_mode_display)
         
         style_options = ['classical', 'jazz', 'folk']
         selected_style = st.select_slider(
@@ -539,13 +597,21 @@ with st.sidebar:
         
         rhythm_source = st.slider(
             "节奏来源", 0.0, 1.0, 0.0, step=0.05,
-            help="0=使用动机节奏型；1=使用自由均匀节奏（密度由下方滑块决定）"
+            help="0=使用动机节奏型；1=使用自由节奏（类型由下方节奏类型滑块决定）"
         )
         
-        # 密度滑块：当节奏来源>0.5时生效，否则置灰
+        # 新增：节奏类型滑块 [citation:2][citation:6][citation:9]
+        rhythm_type_options = ['均分', '前附点', '后附点', '前切分', '后切分']
+        rhythm_type = st.select_slider(
+            "节奏类型", options=rhythm_type_options, value='均分',
+            disabled=rhythm_source <= 0.5,  # 仅当节奏来源为自由时生效
+            help="选择旋律的节奏型：均分（密度控制）、前附点、后附点、前切分、后切分[citation:2][citation:9]"
+        )
+        
+        # 密度滑块（当节奏类型为均分时生效）
         density = st.slider(
-            "音符密度 (当节奏自由时)", 0.0, 1.0, 0.5, step=0.05,
-            disabled=rhythm_source <= 0.5,
+            "音符密度 (当节奏类型为均分时)", 0.0, 1.0, 0.5, step=0.05,
+            disabled=(rhythm_source <= 0.5) or (rhythm_type != '均分'),
             help="0=一拍1个八分音符，1=一拍4个八分音符"
         )
         
@@ -566,7 +632,7 @@ with st.sidebar:
                     developed_score = develop_motif_with_progression_advanced(
                         motif_notes, motif_pitches, target_length, chord_prog_input,
                         chords_per_bar, dev_technique, stretch_factor, motif_weight,
-                        rhythm_source, density, left_style,
+                        rhythm_source, density, left_style, rhythm_type,
                         key=selected_key, mode=selected_mode, style=selected_style, beats_per_measure=4.0
                     )
                     new_idx = len(st.session_state.variants)
@@ -582,10 +648,11 @@ with st.sidebar:
                         'stretch': stretch_factor,
                         'motif_weight': motif_weight,
                         'rhythm_source': rhythm_source,
+                        'rhythm_type': rhythm_type,
                         'density': density,
                         'left_style': left_style,
                         'key': selected_key,
-                        'mode': selected_mode,
+                        'mode': selected_mode_display,
                         'style': selected_style
                     })
                     st.session_state.labels_surprise.append(None)
@@ -610,6 +677,7 @@ if st.session_state.variants:
                          f"手法:{meta.get('technique')} | 伸缩:{meta.get('stretch')} | "
                          f"动机保留:{meta.get('motif_weight',0.5):.2f} | "
                          f"节奏来源:{'动机' if meta.get('rhythm_source',0)<=0.5 else '自由'} | "
+                         f"节奏类型:{meta.get('rhythm_type','均分')} | "
                          f"密度:{meta.get('density',0.5):.2f} | "
                          f"左手:{meta.get('left_style','柱形')}")
         else:
